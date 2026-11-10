@@ -45,6 +45,7 @@ class UdpMeshSocketDriver @Inject constructor(
     var localDeviceId: String = ""
     var localCallsign: String = "Rider"
     var activeChannel: Int = 1
+    var activePackToken: String? = null
 
     private val _incomingAudioFlow = MutableSharedFlow<AudioPacket>(extraBufferCapacity = 32)
     val incomingAudioFlow: SharedFlow<AudioPacket> = _incomingAudioFlow.asSharedFlow()
@@ -140,7 +141,8 @@ class UdpMeshSocketDriver @Inject constructor(
 
     private fun sendDatagram(type: Byte, seq: Long, payload: ByteArray) {
         val socket = datagramSocket ?: return
-        val senderTag = "$localDeviceId|$localCallsign|$activeChannel"
+        val tokenPart = if (!activePackToken.isNullOrBlank()) "|${activePackToken.hashCode()}" else ""
+        val senderTag = "$localDeviceId|$localCallsign|$activeChannel$tokenPart"
         val senderBytes = senderTag.toByteArray(Charsets.UTF_8)
 
         val buffer = ByteBuffer.allocate(2 + 1 + 8 + 8 + 1 + senderBytes.size + payload.size).apply {
@@ -177,11 +179,12 @@ class UdpMeshSocketDriver @Inject constructor(
         buffer.get(tagBytes)
         val senderTag = String(tagBytes, Charsets.UTF_8)
 
-        // Parse: deviceId|callsign|channel
+        // Parse: deviceId|callsign|channel|tokenHash
         val parts = senderTag.split("|")
         val senderDeviceId = parts.getOrNull(0) ?: return
         val senderCallsign = parts.getOrNull(1) ?: "Rider $senderDeviceId"
         val senderChannel = parts.getOrNull(2)?.toIntOrNull() ?: 1
+        val senderTokenHash = parts.getOrNull(3)
 
         // CRITICAL 1: DROP SELF-PACKETS (ELIMINATES SELF-ECHO)
         if (senderDeviceId == localDeviceId && localDeviceId.isNotBlank()) {
@@ -191,6 +194,16 @@ class UdpMeshSocketDriver @Inject constructor(
         // CRITICAL 2: FILTER CHANNEL (Only hear riders on the same Channel)
         if (senderChannel != activeChannel) {
             return
+        }
+
+        // CRITICAL 3: AUTHENTICATE PACK TOKEN (Rejects unauthenticated third-party packets)
+        val expectedToken = activePackToken
+        if (!expectedToken.isNullOrBlank()) {
+            val expectedHash = expectedToken.hashCode().toString()
+            if (senderTokenHash != expectedHash) {
+                // Drop rogue or unauthenticated packet
+                return
+            }
         }
 
         val payloadSize = buffer.remaining()

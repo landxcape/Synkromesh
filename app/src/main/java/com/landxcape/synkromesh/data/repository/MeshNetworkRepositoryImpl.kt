@@ -35,6 +35,12 @@ class MeshNetworkRepositoryImpl @Inject constructor(
     private var audioBridgeJob: Job? = null
     private var telemetryBroadcastJob: Job? = null
     private var heartbeatJob: Job? = null
+    private var activePackToken: String? = null
+
+    override fun setPackToken(token: String?) {
+        activePackToken = token
+        udpDriver.activePackToken = token
+    }
 
     override fun observeMeshState(): Flow<MeshState> = combine(
         nearbyDriver.meshState,
@@ -72,6 +78,7 @@ class MeshNetworkRepositoryImpl @Inject constructor(
         udpDriver.localDeviceId = deviceId
         udpDriver.localCallsign = callsign
         udpDriver.activeChannel = channel
+        udpDriver.activePackToken = activePackToken
         udpDriver.startSocket().getOrThrow()
 
         // 2. Start automated zero-config BLE discovery & Wi-Fi Direct handshake for Channel

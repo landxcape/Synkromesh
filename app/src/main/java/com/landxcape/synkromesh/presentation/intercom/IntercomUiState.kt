@@ -50,6 +50,7 @@ data class IntercomUiState(
     val mutedPeerIds: Set<String> = emptySet(),
     val peers: List<MeshPeer> = emptyList(),
     val riders: List<Rider> = emptyList(),
+    val packToken: String? = null,
     val errorMessage: String? = null
 )
 
@@ -74,6 +75,7 @@ sealed interface IntercomUiEvent {
     data object RefreshBatteryStatus : IntercomUiEvent
     data object RefreshPreflightAndDevices : IntercomUiEvent
     data class SelectGroupingMode(val mode: GroupingMode) : IntercomUiEvent
+    data class SetPackToken(val token: String?) : IntercomUiEvent
     data object EngageIntercom : IntercomUiEvent
     data object ReturnToStaging : IntercomUiEvent
     data object ToggleRadarOverlay : IntercomUiEvent

@@ -70,6 +70,7 @@ class IntercomViewModel @Inject constructor(
     private val _isConnectionSetupOpen = MutableStateFlow(false)
     private val _isPermissionSheetVisible = MutableStateFlow(false)
     private val _mutedPeerIds = MutableStateFlow<Set<String>>(emptySet())
+    private val _packToken = MutableStateFlow<String?>(null)
 
     init {
         refreshPreflightAndDevices()
@@ -130,7 +131,8 @@ class IntercomViewModel @Inject constructor(
         bluetoothDeviceManager.devicesFlow,
         _cockpitPhase,
         _groupingMode,
-        _isRadarOverlayActive
+        _isRadarOverlayActive,
+        _packToken
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         DialogsAndPreflightState(
@@ -144,7 +146,8 @@ class IntercomViewModel @Inject constructor(
             pairedHeadsets = args[7] as List<PairedHeadset>,
             cockpitPhase = args[8] as CockpitPhase,
             groupingMode = args[9] as GroupingMode,
-            isRadarOverlayActive = args[10] as Boolean
+            isRadarOverlayActive = args[10] as Boolean,
+            packToken = args[11] as String?
         )
     }
 
@@ -205,6 +208,7 @@ class IntercomViewModel @Inject constructor(
             mutedPeerIds = dialogs.mutedPeerIds,
             peers = audioMesh.peers,
             riders = mappedRiders,
+            packToken = dialogs.packToken,
             errorMessage = dialogs.errorMessage
         )
     }.stateIn(
@@ -236,6 +240,7 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.RefreshBatteryStatus -> refreshPreflightAndDevices()
                 is IntercomUiEvent.RefreshPreflightAndDevices -> refreshPreflightAndDevices()
                 is IntercomUiEvent.SelectGroupingMode -> onSelectGroupingMode(event.mode)
+                is IntercomUiEvent.SetPackToken -> onSetPackToken(event.token)
                 is IntercomUiEvent.EngageIntercom -> onEngageIntercom()
                 is IntercomUiEvent.ReturnToStaging -> onReturnToStaging()
                 is IntercomUiEvent.ToggleRadarOverlay -> _isRadarOverlayActive.value = !_isRadarOverlayActive.value
@@ -335,7 +340,18 @@ class IntercomViewModel @Inject constructor(
                     _errorFlow.value = "Failed to start Lead Hotspot: ${err.message}"
                 }
             }
+            if (_packToken.value == null) {
+                _packToken.value = java.util.UUID.randomUUID().toString().take(12)
+            }
+            meshNetworkRepository.setPackToken(_packToken.value)
+        } else if (mode == GroupingMode.OPEN_MESH) {
+            meshNetworkRepository.setPackToken(null)
         }
+    }
+
+    private fun onSetPackToken(token: String?) {
+        _packToken.value = token
+        meshNetworkRepository.setPackToken(token)
     }
 
     private suspend fun onEngageIntercom() {
@@ -399,7 +415,11 @@ class IntercomViewModel @Inject constructor(
             bluetoothScoRepository.startBluetoothSco()
         }
         result.onFailure { err ->
-            _errorFlow.value = "Bluetooth SCO failure: ${err.message}"
+            _errorFlow.value = if (err.message?.contains("NO_BLUETOOTH_HEADSET_CONNECTED") == true) {
+                "NO_BT_HEADSET: No Bluetooth helmet headset detected. Pair in Android Settings."
+            } else {
+                "Bluetooth SCO: ${err.message}"
+            }
         }
     }
 
@@ -434,6 +454,7 @@ class IntercomViewModel @Inject constructor(
         val pairedHeadsets: List<PairedHeadset>,
         val cockpitPhase: CockpitPhase,
         val groupingMode: GroupingMode,
-        val isRadarOverlayActive: Boolean
+        val isRadarOverlayActive: Boolean,
+        val packToken: String?
     )
 }

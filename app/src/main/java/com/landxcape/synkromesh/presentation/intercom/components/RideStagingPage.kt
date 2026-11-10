@@ -101,7 +101,6 @@ fun RideStagingPage(
 ) {
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
-    val scrollState = rememberScrollState()
 
     // Map GroupingMode to Page Index: 0 -> AUDIO, 1 -> OPEN_MESH, 2 -> LEAD, 3 -> JOIN
     val initialPage = when (uiState.groupingMode) {
@@ -147,42 +146,48 @@ fun RideStagingPage(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 10.dp)
-                .verticalScroll(scrollState),
+                .statusBarsPadding(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 1. Top Technical Header Bar
-            TechnicalHeaderBar(
-                callsign = uiState.callsign,
-                isScoConnected = uiState.audioRouting.isScoConnected,
-                headsetName = uiState.audioRouting.connectedDeviceName,
-                onEditCallsign = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(true)) },
-                onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
-                onOpenPreflight = { onEvent(IntercomUiEvent.SetPermissionSheetVisible(true)) }
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // 1. Top Technical Header Bar
+                TechnicalHeaderBar(
+                    callsign = uiState.callsign,
+                    isScoConnected = uiState.audioRouting.isScoConnected,
+                    headsetName = uiState.audioRouting.connectedDeviceName,
+                    onEditCallsign = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(true)) },
+                    onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
+                    onOpenPreflight = { onEvent(IntercomUiEvent.SetPermissionSheetVisible(true)) }
+                )
 
-            Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-            // 2. Perfectly Aligned 4-Segment Tabs
-            BalancedSegmentedTabs(
-                selectedPage = pagerState.currentPage,
-                onSelectPage = { pageIndex ->
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    coroutineScope.launch {
-                        pagerState.animateScrollToPage(pageIndex)
+                // 2. Perfectly Aligned 4-Segment Tabs
+                BalancedSegmentedTabs(
+                    selectedPage = pagerState.currentPage,
+                    onSelectPage = { pageIndex ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        coroutineScope.launch {
+                            pagerState.animateScrollToPage(pageIndex)
+                        }
                     }
-                }
-            )
+                )
+            }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // 3. Swappable Horizontal Pager (Gesture-Driven PageView)
+            // 3. Swappable Horizontal Pager (Full-screen swipable anywhere on the body)
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier
+                    .weight(1f)
                     .fillMaxWidth()
-                    .height(370.dp)
+                    .padding(horizontal = 20.dp)
             ) { page ->
                 when (page) {
                     0 -> AudioHardwareContent(
@@ -201,6 +206,7 @@ fun RideStagingPage(
                         callsign = uiState.callsign,
                         hotspotSsid = uiState.hotspotSsid,
                         hotspotPassword = uiState.hotspotPassword,
+                        packToken = uiState.packToken,
                         isHotspotActive = uiState.isHotspotActive,
                         riderCount = uiState.riders.size,
                         onToggleHotspot = { onEvent(IntercomUiEvent.ToggleHotspotClicked) }
@@ -213,11 +219,15 @@ fun RideStagingPage(
                 }
             }
 
-            // Clearance for 2-tier bottom pinned launch console
-            Spacer(modifier = Modifier.height(130.dp))
+            // Clearance for bottom pinned launch action button
+            Spacer(
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .height(82.dp)
+            )
         }
 
-        // 5. Bottom-Pinned Hero Action Console (Unified Voice Trigger + Start Intercom)
+        // 4. Bottom-Pinned Hero Action Console
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -225,23 +235,12 @@ fun RideStagingPage(
             color = DarkBackground.copy(alpha = 0.98f),
             border = BorderStroke(1.dp, BorderSubtle)
         ) {
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
             ) {
-                // Tier 1: Integrated Voice Trigger Selector
-                DockedVoiceTriggerSelector(
-                    selectedMode = uiState.selectedMode,
-                    onSelectMode = { mode ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onEvent(IntercomUiEvent.ModeChanged(mode))
-                    }
-                )
-
-                // Tier 2: 58dp Hero Action Button
                 PrecisionActionButton(
                     text = "START INTERCOM",
                     subtext = when (pagerState.currentPage) {
@@ -313,78 +312,6 @@ private fun BalancedSegmentedTabs(
                             fontSize = 10.sp,
                             fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
                             letterSpacing = 0.2.sp,
-                            color = textColor
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DockedVoiceTriggerSelector(
-    selectedMode: IntercomMode,
-    onSelectMode: (IntercomMode) -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(38.dp),
-        color = DarkSurface,
-        shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, BorderSubtle)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val modes = listOf(
-                Triple("PTT (HOLD)", Icons.Default.TouchApp, IntercomMode.PUSH_TO_TALK),
-                Triple("TOGGLE", Icons.Default.Mic, IntercomMode.TOGGLE),
-                Triple("ALWAYS ON", Icons.AutoMirrored.Filled.VolumeUp, IntercomMode.ALWAYS_ON)
-            )
-
-            modes.forEach { (label, icon, mode) ->
-                val isSelected = selectedMode == mode
-                val bgColor by animateColorAsState(
-                    targetValue = if (isSelected) DarkSurfaceElevated else Color.Transparent,
-                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                    label = "dockModeBg"
-                )
-                val textColor by animateColorAsState(
-                    targetValue = if (isSelected) TextPrimary else TextMuted,
-                    label = "dockModeText"
-                )
-
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onSelectMode(mode) },
-                    color = bgColor,
-                    shape = RoundedCornerShape(8.dp),
-                    border = if (isSelected) BorderStroke(1.dp, BorderFocus) else null
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = if (isSelected) AccentCyan else textColor,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = label,
-                            fontSize = 10.sp,
-                            fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
                             color = textColor
                         )
                     }
@@ -507,16 +434,19 @@ private fun AudioHardwareContent(
     uiState: IntercomUiState,
     onEvent: (IntercomUiEvent) -> Unit
 ) {
+    val scrollState = rememberScrollState()
+
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxSize(),
         color = DarkSurface,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, BorderSubtle)
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+                .fillMaxSize()
+                .padding(16.dp)
+                .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Title & Preflight Status
@@ -762,15 +692,16 @@ private fun OpenMeshContent(
     val scrollState = rememberScrollState()
 
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(350.dp),
+        modifier = Modifier.fillMaxSize(),
         color = DarkSurface,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, BorderSubtle)
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(18.dp)
+                .verticalScroll(scrollState),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column {
@@ -879,16 +810,19 @@ private fun LeadPackContent(
     callsign: String,
     hotspotSsid: String?,
     hotspotPassword: String?,
+    packToken: String?,
     isHotspotActive: Boolean,
     riderCount: Int,
     onToggleHotspot: () -> Unit
 ) {
-    val qrData = remember(channel, callsign, hotspotSsid, hotspotPassword) {
+    val scrollState = rememberScrollState()
+    val qrData = remember(channel, callsign, hotspotSsid, hotspotPassword, packToken) {
         RideQrData(
             channel = channel,
             callsign = callsign,
             ssid = hotspotSsid,
-            password = hotspotPassword
+            password = hotspotPassword,
+            packToken = packToken
         )
     }
 
@@ -897,15 +831,16 @@ private fun LeadPackContent(
     }
 
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(350.dp),
+        modifier = Modifier.fillMaxSize(),
         color = DarkSurface,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, BorderSubtle)
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(18.dp)
+                .verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
@@ -1019,16 +954,19 @@ private fun JoinPackContent(
     meshState: MeshState,
     onScanQr: () -> Unit
 ) {
+    val scrollState = rememberScrollState()
+
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(350.dp),
+        modifier = Modifier.fillMaxSize(),
         color = DarkSurface,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, BorderSubtle)
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(18.dp)
+                .verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {

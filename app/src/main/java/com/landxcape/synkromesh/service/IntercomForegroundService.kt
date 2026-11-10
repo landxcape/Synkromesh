@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioManager
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
@@ -203,6 +204,23 @@ class IntercomForegroundService : Service() {
         }
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        peerMonitoringJob?.cancel()
+        peerMonitoringJob = null
+        serviceScope.launch {
+            meshNetworkRepository.stopMeshSession()
+            audioEngineRepository.stopAudioEngine()
+            bluetoothScoRepository.stopBluetoothSco()
+            intercomRepository.stopIntercomSession()
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.mode = AudioManager.MODE_NORMAL
+        }
+        headsetMediaButtonManager.deactivateMediaSession()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     override fun onDestroy() {
         peerMonitoringJob?.cancel()
         headsetMediaButtonManager.deactivateMediaSession()
@@ -212,6 +230,8 @@ class IntercomForegroundService : Service() {
         wifiLock?.let {
             if (it.isHeld) it.release()
         }
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        audioManager?.mode = AudioManager.MODE_NORMAL
         serviceScope.cancel()
         super.onDestroy()
     }

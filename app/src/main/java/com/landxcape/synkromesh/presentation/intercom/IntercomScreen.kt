@@ -40,8 +40,10 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -116,7 +118,23 @@ fun IntercomRoute(
 
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let { error ->
-            snackbarHostState.showSnackbar(error)
+            if (error.startsWith("NO_BT_HEADSET")) {
+                val cleanMsg = error.removePrefix("NO_BT_HEADSET: ").trim()
+                val result = snackbarHostState.showSnackbar(
+                    message = cleanMsg,
+                    actionLabel = "SETTINGS",
+                    duration = SnackbarDuration.Long
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    try {
+                        context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                    } catch (e: Exception) {
+                        context.startActivity(Intent(Settings.ACTION_SETTINGS))
+                    }
+                }
+            } else {
+                snackbarHostState.showSnackbar(error)
+            }
             viewModel.onEvent(IntercomUiEvent.ClearError)
         }
     }
@@ -173,6 +191,7 @@ fun IntercomScreen(
                     if (data != null) {
                         onEvent(IntercomUiEvent.SaveRideChannel(data.channel))
                         onEvent(IntercomUiEvent.SelectGroupingMode(GroupingMode.JOIN))
+                        onEvent(IntercomUiEvent.SetPackToken(data.packToken))
                         onEvent(IntercomUiEvent.EngageIntercom)
                         coroutineScope.launch {
                             snackbarHostState.showSnackbar("Joined Channel ${data.channel} (Host: ${data.callsign})")
@@ -210,6 +229,7 @@ fun IntercomScreen(
             callsign = uiState.callsign,
             hotspotSsid = uiState.hotspotSsid,
             hotspotPassword = uiState.hotspotPassword,
+            packToken = uiState.packToken,
             onDismiss = { isQrDialogOpen = false }
         )
     }

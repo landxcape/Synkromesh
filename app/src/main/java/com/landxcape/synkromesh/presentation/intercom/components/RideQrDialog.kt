@@ -50,14 +50,16 @@ fun RideQrDialog(
     callsign: String,
     hotspotSsid: String?,
     hotspotPassword: String?,
+    packToken: String? = null,
     onDismiss: () -> Unit
 ) {
-    val qrBitmap: Bitmap? = remember(channel, callsign, hotspotSsid, hotspotPassword) {
+    val qrBitmap: Bitmap? = remember(channel, callsign, hotspotSsid, hotspotPassword, packToken) {
         val data = RideQrData(
             channel = channel,
             callsign = callsign,
             ssid = hotspotSsid,
-            password = hotspotPassword
+            password = hotspotPassword,
+            packToken = packToken
         )
         RideQrManager.generateQrBitmap(data, sizePx = 600)
     }

@@ -11,7 +11,8 @@ data class RideQrData(
     val channel: Int,
     val callsign: String,
     val ssid: String? = null,
-    val password: String? = null
+    val password: String? = null,
+    val packToken: String? = null
 ) {
     fun toUriString(): String {
         val params = mutableListOf<String>()
@@ -22,6 +23,9 @@ data class RideQrData(
         }
         if (!password.isNullOrBlank()) {
             params.add("pwd=${URLEncoder.encode(password, "UTF-8")}")
+        }
+        if (!packToken.isNullOrBlank()) {
+            params.add("token=${URLEncoder.encode(packToken, "UTF-8")}")
         }
         return "synkromesh://join?" + params.joinToString("&")
     }
@@ -41,7 +45,8 @@ data class RideQrData(
                 val callsign = map["callsign"] ?: "Rider"
                 val ssid = map["ssid"]
                 val pwd = map["pwd"]
-                RideQrData(channel = ch, callsign = callsign, ssid = ssid, password = pwd)
+                val token = map["token"]
+                RideQrData(channel = ch, callsign = callsign, ssid = ssid, password = pwd, packToken = token)
             } catch (_: Exception) {
                 null
             }

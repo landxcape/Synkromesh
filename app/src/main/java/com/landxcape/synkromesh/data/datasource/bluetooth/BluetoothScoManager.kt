@@ -113,11 +113,11 @@ class BluetoothScoManager @Inject constructor(
     @SuppressLint("MissingPermission")
     fun startSco(): Result<Unit> = runCatching {
         isScoRequested = true
-        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             startModernSco()
         } else {
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
             startLegacySco()
         }
     }
@@ -140,10 +140,13 @@ class BluetoothScoManager @Inject constructor(
     @RequiresApi(Build.VERSION_CODES.S)
     private fun startModernSco() {
         val scoDevice = audioManager.availableCommunicationDevices.firstOrNull {
-            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+            it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+            it.type == AudioDeviceInfo.TYPE_HEARING_AID
         }
 
         if (scoDevice != null) {
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
             val success = audioManager.setCommunicationDevice(scoDevice)
             if (success) {
                 _routingState.value = AudioRoutingState(
@@ -151,13 +154,18 @@ class BluetoothScoManager @Inject constructor(
                     isScoConnected = true,
                     connectedDeviceName = scoDevice.productName.toString().ifBlank { "Bluetooth Helmet Headset" }
                 )
+            } else {
+                audioManager.mode = AudioManager.MODE_NORMAL
+                throw IllegalStateException("Failed to route communication audio to Bluetooth device")
             }
         } else {
+            audioManager.mode = AudioManager.MODE_NORMAL
             _routingState.value = AudioRoutingState(
                 activeTarget = AudioRoutingTarget.DEVICE_SPEAKER,
                 isScoConnected = false,
                 connectedDeviceName = null
             )
+            throw IllegalStateException("NO_BLUETOOTH_HEADSET_CONNECTED")
         }
     }
 
@@ -192,7 +200,11 @@ class BluetoothScoManager @Inject constructor(
             Executors.newSingleThreadExecutor()
         ) { device ->
             scope.launch {
-                if (device != null && device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
+                if (device != null && (
+                    device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                    device.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                    device.type == AudioDeviceInfo.TYPE_HEARING_AID
+                )) {
                     _routingState.value = AudioRoutingState(
                         activeTarget = AudioRoutingTarget.BLUETOOTH_SCO_HEADSET,
                         isScoConnected = true,

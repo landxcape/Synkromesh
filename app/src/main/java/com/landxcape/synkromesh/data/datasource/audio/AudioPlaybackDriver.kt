@@ -56,7 +56,9 @@ class AudioPlaybackDriver @Inject constructor(
     }
 
     private fun applySpeakerphoneRouting(enabled: Boolean) {
-        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        if (_isPlaying.value) {
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (enabled) {
@@ -95,7 +97,8 @@ class AudioPlaybackDriver @Inject constructor(
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
             .build()
 
-        // Apply speakerphone routing
+        // Set communication mode and apply speakerphone routing
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         applySpeakerphoneRouting(_isSpeakerphoneOn.value)
 
         // Request Audio Focus with ducking permission for motorcycle navigation audio
