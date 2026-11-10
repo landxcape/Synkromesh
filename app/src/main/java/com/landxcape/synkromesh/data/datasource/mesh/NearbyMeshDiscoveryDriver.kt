@@ -16,13 +16,20 @@ import com.google.android.gms.nearby.connection.Payload
 import com.google.android.gms.nearby.connection.PayloadCallback
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
+import com.landxcape.synkromesh.domain.model.AudioPacket
 import com.landxcape.synkromesh.domain.model.MeshPeer
 import com.landxcape.synkromesh.domain.model.MeshState
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -37,6 +44,7 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
         private const val BASE_SERVICE_ID = "com.landxcape.synkromesh.intercom"
         private val STRATEGY = Strategy.P2P_CLUSTER
         private const val TELEMETRY_PREFIX = "TEL:"
+        private const val PAYLOAD_TYPE_AUDIO: Byte = 0x01
     }
 
     private val client: ConnectionsClient by lazy {
@@ -46,9 +54,12 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
     private val _meshState = MutableStateFlow(MeshState.DISCONNECTED)
     val meshState: StateFlow<MeshState> = _meshState.asStateFlow()
 
-    private val _peersMap = mutableMapOf<String, MeshPeer>()
+    private val _peersMap = ConcurrentHashMap<String, MeshPeer>()
     private val _peersFlow = MutableStateFlow<List<MeshPeer>>(emptyList())
     val peersFlow: StateFlow<List<MeshPeer>> = _peersFlow.asStateFlow()
+
+    private val _incomingAudioFlow = MutableSharedFlow<AudioPacket>(extraBufferCapacity = 32)
+    val incomingAudioFlow: SharedFlow<AudioPacket> = _incomingAudioFlow.asSharedFlow()
 
     private var localCallsign: String = "Rider"
     private var localDeviceId: String = ""
@@ -78,7 +89,6 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
                 broadcastCurrentLocationToEndpoint(endpointId)
             } else {
                 Log.w(TAG, "Connection to $endpointId failed with status: ${resolution.status.statusCode}")
-                // Keep discovered peer visible even if initial handshake retries
                 updatePeersList()
             }
         }
@@ -96,8 +106,9 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
         override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
             val rawName = info.endpointName
             val callsign = rawName.substringBefore("|").ifBlank { "Rider $endpointId" }
+            val peerDeviceId = rawName.substringAfter("|", "")
 
-            // INSTANT VISIBILITY: Show the discovered rider on Radar immediately!
+            // INSTANT VISIBILITY: Show the discovered rider immediately
             val peer = _peersMap[endpointId] ?: MeshPeer(
                 id = endpointId,
                 callsign = callsign,
@@ -106,13 +117,25 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
             _peersMap[endpointId] = peer
             updatePeersList()
 
-            // Request connection
-            val myTag = if (localDeviceId.isNotBlank()) "$localCallsign|$localDeviceId" else localCallsign
-            client.requestConnection(myTag, endpointId, connectionLifecycleCallback)
-                .addOnFailureListener { err ->
-                    // May already be connected or initiated simultaneously
-                    Log.d(TAG, "requestConnection note for $endpointId: ${err.message}")
-                }
+            // DETERMINISTIC INITIATOR TIE-BREAKER:
+            // Only device with lexicographically greater device ID initiates the connection.
+            // The other device simply waits and accepts the incoming request.
+            // This prevents duplicate simultaneous connection requests and immediate disconnects!
+            val shouldInitiate = if (peerDeviceId.isNotBlank() && localDeviceId.isNotBlank()) {
+                localDeviceId > peerDeviceId
+            } else {
+                true
+            }
+
+            if (shouldInitiate) {
+                val myTag = if (localDeviceId.isNotBlank()) "$localCallsign|$localDeviceId" else localCallsign
+                client.requestConnection(myTag, endpointId, connectionLifecycleCallback)
+                    .addOnFailureListener { err ->
+                        Log.d(TAG, "requestConnection note for $endpointId: ${err.message}")
+                    }
+            } else {
+                Log.d(TAG, "Device $localDeviceId waiting for $peerDeviceId to initiate connection")
+            }
         }
 
         override fun onEndpointLost(endpointId: String) {
@@ -123,8 +146,13 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
 
     private val payloadCallback = object : PayloadCallback() {
         override fun onPayloadReceived(endpointId: String, payload: Payload) {
-            if (payload.type == Payload.Type.BYTES) {
-                val bytes = payload.asBytes() ?: return
+            if (payload.type != Payload.Type.BYTES) return
+            val bytes = payload.asBytes() ?: return
+            if (bytes.isEmpty()) return
+
+            if (bytes[0] == PAYLOAD_TYPE_AUDIO && bytes.size > 18) {
+                handleAudioPayload(bytes)
+            } else {
                 val text = String(bytes, StandardCharsets.UTF_8)
                 if (text.startsWith(TELEMETRY_PREFIX)) {
                     handleTelemetryPayload(endpointId, text.removePrefix(TELEMETRY_PREFIX))
@@ -133,6 +161,38 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
         }
 
         override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) {}
+    }
+
+    private fun handleAudioPayload(bytes: ByteArray) {
+        val buffer = ByteBuffer.wrap(bytes).apply { order(ByteOrder.BIG_ENDIAN) }
+        buffer.get() // Skip PAYLOAD_TYPE_AUDIO
+        val seq = buffer.long
+        val timestamp = buffer.long
+        val tagLen = buffer.get().toInt() and 0xFF
+        if (buffer.remaining() < tagLen) return
+
+        val tagBytes = ByteArray(tagLen)
+        buffer.get(tagBytes)
+        val tag = String(tagBytes, StandardCharsets.UTF_8)
+        val senderDeviceId = tag.substringBefore("|")
+        val senderChannel = tag.substringAfter("|").toIntOrNull() ?: 1
+
+        // Drop own packets & packets from other channels
+        if (senderDeviceId == localDeviceId && localDeviceId.isNotBlank()) return
+        if (senderChannel != activeChannel) return
+
+        val payloadSize = buffer.remaining()
+        val opusBytes = ByteArray(payloadSize)
+        buffer.get(opusBytes)
+
+        _incomingAudioFlow.tryEmit(
+            AudioPacket(
+                sequenceNumber = seq,
+                senderId = senderDeviceId,
+                timestampMs = timestamp,
+                payload = opusBytes
+            )
+        )
     }
 
     private fun handleTelemetryPayload(endpointId: String, data: String) {
@@ -171,6 +231,27 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
             )
             updatePeersList()
         }
+    }
+
+    fun sendAudioPayload(packet: AudioPacket): Result<Unit> = runCatching {
+        if (_peersMap.isEmpty()) return Result.success(Unit)
+        val endpoints = _peersMap.keys.toList()
+
+        val senderTag = "${packet.senderId}|$activeChannel"
+        val senderBytes = senderTag.toByteArray(StandardCharsets.UTF_8)
+
+        val buffer = ByteBuffer.allocate(1 + 8 + 8 + 1 + senderBytes.size + packet.payload.size).apply {
+            order(ByteOrder.BIG_ENDIAN)
+            put(PAYLOAD_TYPE_AUDIO)
+            putLong(packet.sequenceNumber)
+            putLong(packet.timestampMs)
+            put(senderBytes.size.toByte())
+            put(senderBytes)
+            put(packet.payload)
+        }
+
+        val payload = Payload.fromBytes(buffer.array())
+        client.sendPayload(endpoints, payload)
     }
 
     fun startDiscoveryAndAdvertising(

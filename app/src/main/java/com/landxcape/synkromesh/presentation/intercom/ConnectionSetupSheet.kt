@@ -29,9 +29,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -41,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -53,7 +54,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.landxcape.synkromesh.domain.model.MeshState
@@ -78,8 +78,12 @@ fun ConnectionSetupSheet(
     meshState: MeshState,
     rideChannel: Int,
     riders: List<Rider>,
+    isHotspotActive: Boolean,
+    hotspotSsid: String?,
+    hotspotPassword: String?,
     onSelectChannel: (Int) -> Unit,
     onToggleSession: () -> Unit,
+    onToggleHotspot: () -> Unit,
     onDismiss: () -> Unit,
     sheetState: SheetState
 ) {
@@ -246,6 +250,93 @@ fun ConnectionSetupSheet(
                 }
             }
 
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Lead Rider Hotspot Card (Guaranteed Zero-Data Road LAN)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.WifiTethering,
+                                contentDescription = null,
+                                tint = if (isHotspotActive) AccentGreen else AccentCyan,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Lead Rider: Host Hotspot",
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = "Creates an offline Wi-Fi LAN on the road",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = onToggleHotspot,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isHotspotActive) AccentGreen else AccentCyan,
+                                contentColor = DarkBackground
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = if (isHotspotActive) "ACTIVE" else "HOST",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    if (isHotspotActive && hotspotSsid != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = DarkBackground
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(
+                                    text = "Hotspot SSID: $hotspotSsid",
+                                    fontWeight = FontWeight.Bold,
+                                    color = AccentGreen,
+                                    fontSize = 12.sp
+                                )
+                                hotspotPassword?.let { pwd ->
+                                    Text(
+                                        text = "Password: $pwd",
+                                        color = TextSecondary,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                                Text(
+                                    text = "Other riders: Connect your phone to this Wi-Fi network for <15ms audio latency.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextMuted,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(20.dp))
 
             // Main Action Button
@@ -364,7 +455,6 @@ private fun RiderRadarCanvas(
 
                 // Use relative bearing or distribute around circle
                 val angleDeg = rider.relativeBearingDegrees ?: (index * (360f / riders.size.coerceAtLeast(1)))
-                // 0 degrees relative bearing is Ahead (-90 degrees on Canvas Cartesian)
                 val canvasAngleRad = Math.toRadians((angleDeg - 90f).toDouble())
 
                 val peerPos = Offset(

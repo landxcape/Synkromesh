@@ -3,6 +3,7 @@ package com.landxcape.synkromesh.data.datasource.mesh
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.wifi.WifiManager
+import android.os.Build
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +25,9 @@ class LocalHotspotDriver @Inject constructor(
     private val _hotspotSsid = MutableStateFlow<String?>(null)
     val hotspotSsid: StateFlow<String?> = _hotspotSsid.asStateFlow()
 
+    private val _hotspotPassword = MutableStateFlow<String?>(null)
+    val hotspotPassword: StateFlow<String?> = _hotspotPassword.asStateFlow()
+
     @SuppressLint("MissingPermission")
     fun startLocalHotspot(): Result<Unit> = runCatching {
         if (_isHotspotActive.value) return@runCatching
@@ -34,8 +38,16 @@ class LocalHotspotDriver @Inject constructor(
                 super.onStarted(reservation)
                 hotspotReservation = reservation
                 _isHotspotActive.value = true
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    _hotspotSsid.value = reservation?.softApConfiguration?.ssid
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    val config = reservation?.softApConfiguration
+                    _hotspotSsid.value = config?.ssid
+                    _hotspotPassword.value = config?.passphrase
+                } else {
+                    @Suppress("DEPRECATION")
+                    _hotspotSsid.value = reservation?.wifiConfiguration?.SSID
+                    @Suppress("DEPRECATION")
+                    _hotspotPassword.value = reservation?.wifiConfiguration?.preSharedKey
                 }
             }
 
@@ -44,6 +56,7 @@ class LocalHotspotDriver @Inject constructor(
                 hotspotReservation = null
                 _isHotspotActive.value = false
                 _hotspotSsid.value = null
+                _hotspotPassword.value = null
             }
 
             override fun onFailed(reason: Int) {
@@ -51,6 +64,7 @@ class LocalHotspotDriver @Inject constructor(
                 hotspotReservation = null
                 _isHotspotActive.value = false
                 _hotspotSsid.value = null
+                _hotspotPassword.value = null
             }
         }, null)
     }
@@ -60,5 +74,6 @@ class LocalHotspotDriver @Inject constructor(
         hotspotReservation = null
         _isHotspotActive.value = false
         _hotspotSsid.value = null
+        _hotspotPassword.value = null
     }
 }

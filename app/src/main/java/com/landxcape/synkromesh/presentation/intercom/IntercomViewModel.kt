@@ -108,6 +108,14 @@ class IntercomViewModel @Inject constructor(
         UserPreferencesState(callsign, channel, vad, bitrate)
     }
 
+    private val hotspotFlow = combine(
+        meshNetworkRepository.observeIsHotspotActive(),
+        meshNetworkRepository.observeHotspotSsid(),
+        meshNetworkRepository.observeHotspotPassword()
+    ) { active, ssid, pass ->
+        Triple(active, ssid, pass)
+    }
+
     private val dialogsAndPreflightFlow = combine(
         _isCallsignDialogOpen,
         _isSettingsOpen,
@@ -134,8 +142,9 @@ class IntercomViewModel @Inject constructor(
     val uiState: StateFlow<IntercomUiState> = combine(
         baseAudioMeshFlow,
         preferencesFlow,
-        dialogsAndPreflightFlow
-    ) { audioMesh, prefs, dialogs ->
+        dialogsAndPreflightFlow,
+        hotspotFlow
+    ) { audioMesh, prefs, dialogs, hotspot ->
         val mappedRiders = audioMesh.peers.map { peer ->
             val relLabel = peer.relativeBearingDegrees?.let {
                 LocationTelemetryDataSource.getRelativePositionLabel(it)
@@ -161,6 +170,9 @@ class IntercomViewModel @Inject constructor(
             isMuted = audioMesh.isMuted,
             isLoopbackActive = audioMesh.isLoopbackActive,
             isSpeakerphoneOn = audioMesh.isSpeakerphoneOn,
+            isHotspotActive = hotspot.first,
+            hotspotSsid = hotspot.second,
+            hotspotPassword = hotspot.third,
             micAudioLevel = audioMesh.micAudioLevel,
             audioRouting = audioMesh.audioRouting,
             meshState = audioMesh.meshState,
@@ -196,6 +208,7 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.ToggleBluetoothScoClicked -> onToggleSco()
                 is IntercomUiEvent.ToggleLoopbackClicked -> onToggleLoopback()
                 is IntercomUiEvent.ToggleSpeakerphoneClicked -> onToggleSpeakerphone()
+                is IntercomUiEvent.ToggleHotspotClicked -> onToggleHotspot()
                 is IntercomUiEvent.SetCallsignDialogVisible -> _isCallsignDialogOpen.value = event.isVisible
                 is IntercomUiEvent.SaveCallsign -> onSaveCallsign(event.callsign)
                 is IntercomUiEvent.SetSettingsVisible -> _isSettingsOpen.value = event.isVisible
@@ -288,6 +301,12 @@ class IntercomViewModel @Inject constructor(
         }
     }
 
+    private suspend fun onToggleHotspot() {
+        meshNetworkRepository.toggleLocalHotspot().onFailure { err ->
+            _errorFlow.value = "Hotspot error: ${err.message}"
+        }
+    }
+
     private suspend fun onToggleSession() {
         val currentState = uiState.value.isSessionActive
         if (currentState) {
@@ -295,7 +314,6 @@ class IntercomViewModel @Inject constructor(
             audioEngineRepository.stopAudioEngine()
             stopIntercomSessionUseCase()
         } else {
-            // Check critical preflight before starting
             preflightManager.refresh()
             val status = preflightManager.statusFlow.value
             if (!status.areCriticalPermissionsGranted || !status.areRadiosEnabled) {

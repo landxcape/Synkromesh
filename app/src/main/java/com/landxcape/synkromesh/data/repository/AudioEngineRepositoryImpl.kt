@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,6 +35,7 @@ class AudioEngineRepositoryImpl @Inject constructor(
     private val engineScope = CoroutineScope(Dispatchers.IO)
     private var processingJob: Job? = null
     private val sequenceCounter = AtomicLong(0)
+    private val lastProcessedSeq = ConcurrentHashMap<String, Long>()
 
     private val _isLoopbackActive = MutableStateFlow(false)
     private val _isEngineActive = MutableStateFlow(false)
@@ -87,6 +89,7 @@ class AudioEngineRepositoryImpl @Inject constructor(
         _isEngineActive.value = false
         processingJob?.cancel()
         processingJob = null
+        lastProcessedSeq.clear()
         captureDriver.stopCapture().getOrThrow()
         playbackDriver.stopPlayback().getOrThrow()
     }
@@ -120,6 +123,14 @@ class AudioEngineRepositoryImpl @Inject constructor(
         if (packet.senderId == localDeviceIdCache && localDeviceIdCache.isNotBlank()) {
             return@runCatching
         }
+
+        // PREVENT DUAL-TRANSPORT DUPLICATION:
+        // Drop duplicate sequence numbers from the same sender (handles UDP + Nearby dual-reception)
+        val lastSeq = lastProcessedSeq[packet.senderId] ?: -1L
+        if (packet.sequenceNumber <= lastSeq && lastSeq - packet.sequenceNumber < 100) {
+            return@runCatching
+        }
+        lastProcessedSeq[packet.senderId] = packet.sequenceNumber
 
         val decodedSamples = codecEngine.decode(packet.payload)
         if (decodedSamples != null) {

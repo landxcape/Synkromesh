@@ -16,7 +16,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -48,17 +48,22 @@ class MeshNetworkRepositoryImpl @Inject constructor(
         }
     }
 
-    // DUAL-LAYER PEER AGGREGATION: Combines Nearby Connections + UDP Broadcast peers
     override fun observePeers(): Flow<List<MeshPeer>> = combine(
         nearbyDriver.peersFlow,
         udpDriver.udpPeersFlow
     ) { nearbyPeers, udpPeers ->
         val combined = (nearbyPeers + udpPeers)
-        // Group by callsign or ID to avoid duplicates
         combined.distinctBy { it.callsign.lowercase().trim() }
     }
 
-    override fun observeIncomingAudioPackets(): Flow<AudioPacket> = udpDriver.incomingAudioFlow
+    override fun observeIncomingAudioPackets(): Flow<AudioPacket> = merge(
+        udpDriver.incomingAudioFlow,
+        nearbyDriver.incomingAudioFlow
+    )
+
+    override fun observeIsHotspotActive(): Flow<Boolean> = hotspotDriver.isHotspotActive
+    override fun observeHotspotSsid(): Flow<String?> = hotspotDriver.hotspotSsid
+    override fun observeHotspotPassword(): Flow<String?> = hotspotDriver.hotspotPassword
 
     override suspend fun startMeshSession(callsign: String, channel: Int): Result<Unit> = runCatching {
         val deviceId = preferencesDataSource.getDeviceId()
@@ -72,18 +77,20 @@ class MeshNetworkRepositoryImpl @Inject constructor(
         // 2. Start automated zero-config BLE discovery & Wi-Fi Direct handshake for Channel
         nearbyDriver.startDiscoveryAndAdvertising(callsign, channel, deviceId).getOrThrow()
 
-        // 3. Start full-duplex audio bridging over UDP
+        // 3. Start full-duplex DUAL-TRANSPORT audio bridging:
+        // Transmits over BOTH UDP broadcast (for fast Wi-Fi/Hotspot) AND Nearby Connections (for road P2P)
         audioBridgeJob?.cancel()
         audioBridgeJob = meshScope.launch {
-            // Outgoing transmission: mic -> Opus -> UDP broadcast
+            // Outgoing transmission: mic -> Opus -> UDP + Nearby
             launch {
                 audioEngineRepository.observeOutgoingPackets().collect { outgoingPacket ->
                     udpDriver.sendPacket(outgoingPacket)
+                    nearbyDriver.sendAudioPayload(outgoingPacket)
                 }
             }
-            // Incoming reception: UDP socket -> Opus decode -> loud speaker or helmet
+            // Incoming reception: UDP socket OR Nearby socket -> Opus decode -> loud speaker or helmet
             launch {
-                udpDriver.incomingAudioFlow.collect { incomingPacket ->
+                merge(udpDriver.incomingAudioFlow, nearbyDriver.incomingAudioFlow).collect { incomingPacket ->
                     audioEngineRepository.playIncomingPacket(incomingPacket)
                 }
             }
@@ -129,7 +136,9 @@ class MeshNetworkRepositoryImpl @Inject constructor(
     }
 
     override suspend fun broadcastVoicePacket(packet: AudioPacket): Result<Unit> {
-        return udpDriver.sendPacket(packet)
+        udpDriver.sendPacket(packet)
+        nearbyDriver.sendAudioPayload(packet)
+        return Result.success(Unit)
     }
 
     override suspend fun broadcastTelemetry(
@@ -147,5 +156,15 @@ class MeshNetworkRepositoryImpl @Inject constructor(
 
     override suspend fun stopLocalHotspot(): Result<Unit> {
         return hotspotDriver.stopLocalHotspot()
+    }
+
+    override suspend fun toggleLocalHotspot(): Result<Boolean> = runCatching {
+        if (hotspotDriver.isHotspotActive.value) {
+            hotspotDriver.stopLocalHotspot().getOrThrow()
+            false
+        } else {
+            hotspotDriver.startLocalHotspot().getOrThrow()
+            true
+        }
     }
 }

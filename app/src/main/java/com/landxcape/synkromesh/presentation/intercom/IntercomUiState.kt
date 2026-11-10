@@ -16,6 +16,9 @@ data class IntercomUiState(
     val isMuted: Boolean = false,
     val isLoopbackActive: Boolean = false,
     val isSpeakerphoneOn: Boolean = true,
+    val isHotspotActive: Boolean = false,
+    val hotspotSsid: String? = null,
+    val hotspotPassword: String? = null,
     val micAudioLevel: Float = 0.0f,
     val audioRouting: AudioRoutingState = AudioRoutingState(),
     val meshState: MeshState = MeshState.DISCONNECTED,
@@ -44,6 +47,7 @@ sealed interface IntercomUiEvent {
     data object ToggleBluetoothScoClicked : IntercomUiEvent
     data object ToggleLoopbackClicked : IntercomUiEvent
     data object ToggleSpeakerphoneClicked : IntercomUiEvent
+    data object ToggleHotspotClicked : IntercomUiEvent
     data class SetCallsignDialogVisible(val isVisible: Boolean) : IntercomUiEvent
     data class SaveCallsign(val callsign: String) : IntercomUiEvent
     data class SetSettingsVisible(val isVisible: Boolean) : IntercomUiEvent

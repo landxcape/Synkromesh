@@ -225,8 +225,12 @@ fun IntercomScreen(
             meshState = uiState.meshState,
             rideChannel = uiState.rideChannel,
             riders = uiState.riders,
+            isHotspotActive = uiState.isHotspotActive,
+            hotspotSsid = uiState.hotspotSsid,
+            hotspotPassword = uiState.hotspotPassword,
             onSelectChannel = { onEvent(IntercomUiEvent.SaveRideChannel(it)) },
             onToggleSession = { onEvent(IntercomUiEvent.ToggleSessionClicked) },
+            onToggleHotspot = { onEvent(IntercomUiEvent.ToggleHotspotClicked) },
             onDismiss = { onEvent(IntercomUiEvent.SetConnectionSetupVisible(false)) },
             sheetState = connectionSheetState
         )
