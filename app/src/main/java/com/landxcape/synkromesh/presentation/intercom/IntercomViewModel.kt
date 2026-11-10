@@ -8,6 +8,7 @@ import com.landxcape.synkromesh.data.datasource.bluetooth.BluetoothHeadsetDevice
 import com.landxcape.synkromesh.data.datasource.bluetooth.PairedHeadset
 import com.landxcape.synkromesh.data.datasource.local.PreferencesDataSource
 import com.landxcape.synkromesh.data.datasource.mesh.LocationTelemetryDataSource
+import com.landxcape.synkromesh.data.datasource.mesh.WifiHotspotClientDriver
 import com.landxcape.synkromesh.domain.model.AudioLevel
 import com.landxcape.synkromesh.domain.model.AudioRoutingState
 import com.landxcape.synkromesh.domain.model.IntercomMode
@@ -39,6 +40,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 @HiltViewModel
@@ -47,6 +49,7 @@ class IntercomViewModel @Inject constructor(
     private val bluetoothScoRepository: BluetoothScoRepository,
     private val audioEngineRepository: AudioEngineRepository,
     private val meshNetworkRepository: MeshNetworkRepository,
+    private val wifiHotspotClientDriver: WifiHotspotClientDriver,
     private val observePeersUseCase: ObservePeersUseCase,
     private val preferencesDataSource: PreferencesDataSource,
     private val batteryOptimizationManager: BatteryOptimizationManager,
@@ -361,7 +364,6 @@ class IntercomViewModel @Inject constructor(
     }
 
     private suspend fun onEngageIntercom() {
-        _cockpitPhase.value = CockpitPhase.COCKPIT
         val isSessionActive = intercomRepository.observeIsSessionActive().first()
         if (!isSessionActive) {
             preflightManager.refresh()
@@ -371,6 +373,18 @@ class IntercomViewModel @Inject constructor(
                 return
             }
 
+            if (_groupingMode.value == GroupingMode.JOIN) {
+                val connected = withTimeoutOrNull(15_000L) {
+                    wifiHotspotClientDriver.isConnected.first { it }
+                }
+                if (connected == null) {
+                    _cockpitPhase.value = CockpitPhase.STAGING
+                    _errorFlow.value = "Could not reach Lead hotspot. Connect manually in Wi-Fi Settings, then try again."
+                    return
+                }
+            }
+
+            _cockpitPhase.value = CockpitPhase.COCKPIT
             val callsign = preferencesDataSource.callsignFlow.first()
             val channel = preferencesDataSource.rideChannelFlow.first()
             startIntercomSessionUseCase().onSuccess {
@@ -379,6 +393,8 @@ class IntercomViewModel @Inject constructor(
             }.onFailure { err ->
                 _errorFlow.value = "Failed to engage intercom: ${err.message}"
             }
+        } else {
+            _cockpitPhase.value = CockpitPhase.COCKPIT
         }
         audioToneFeedbackGenerator.playFeedbackTone(FeedbackTone.MIC_OPEN)
     }
