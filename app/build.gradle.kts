@@ -19,6 +19,7 @@ val keystoreProperties = Properties().apply {
 android {
     namespace = "com.landxcape.synkromesh"
     compileSdk = 35
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "com.landxcape.synkromesh"
@@ -58,7 +59,22 @@ android {
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
+            } else {
+                val debugSigning = signingConfigs.getByName("debug")
+                storeFile = debugSigning.storeFile
+                storePassword = debugSigning.storePassword
+                keyAlias = debugSigning.keyAlias
+                keyPassword = debugSigning.keyPassword
             }
+        }
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
         }
     }
 
@@ -99,10 +115,12 @@ android {
     }
 
     applicationVariants.all {
+        val variant = this
         outputs.all {
             val outputImpl = this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            val baseName = outputImpl?.outputFileName ?: "app-${buildType.name}.apk"
-            outputImpl?.outputFileName = "synkromesh-v${versionName}-b${versionCode}-${baseName}"
+            val abi = outputImpl?.getFilter("ABI")
+            val abiName = abi ?: "universal"
+            outputImpl?.outputFileName = "synkromesh-v${variant.versionName}-b${variant.versionCode}-${abiName}-${variant.buildType.name}.apk"
         }
     }
 }
