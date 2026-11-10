@@ -99,14 +99,6 @@ class IntercomForegroundService : Service() {
                 startForegroundWithNotification()
                 headsetMediaButtonManager.activateMediaSession()
                 startPeerNotificationMonitoring()
-                serviceScope.launch {
-                    val callsign = preferencesDataSource.callsignFlow.first()
-                    val channel = preferencesDataSource.rideChannelFlow.first()
-                    intercomRepository.startIntercomSession()
-                    audioEngineRepository.startAudioEngine()
-                    bluetoothScoRepository.startBluetoothSco()
-                    meshNetworkRepository.startMeshSession(callsign, channel)
-                }
             }
         }
         return START_STICKY
