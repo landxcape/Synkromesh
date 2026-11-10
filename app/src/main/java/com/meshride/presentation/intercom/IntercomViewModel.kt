@@ -24,6 +24,7 @@ import com.meshride.domain.usecase.StartIntercomSessionUseCase
 import com.meshride.domain.usecase.StopIntercomSessionUseCase
 import com.meshride.domain.usecase.ToggleLoopbackUseCase
 import com.meshride.domain.usecase.ToggleMicrophoneMuteUseCase
+import com.meshride.util.BatteryOptimizationManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -42,6 +43,7 @@ class IntercomViewModel @Inject constructor(
     private val meshNetworkRepository: MeshNetworkRepository,
     private val observePeersUseCase: ObservePeersUseCase,
     private val preferencesDataSource: PreferencesDataSource,
+    private val batteryOptimizationManager: BatteryOptimizationManager,
     private val setTransmissionModeUseCase: SetTransmissionModeUseCase,
     private val handlePttPressUseCase: HandlePttPressUseCase,
     private val toggleMicrophoneMuteUseCase: ToggleMicrophoneMuteUseCase,
@@ -54,6 +56,7 @@ class IntercomViewModel @Inject constructor(
 
     private val _errorFlow = MutableStateFlow<String?>(null)
     private val _isCallsignDialogOpen = MutableStateFlow(false)
+    private val _isBatteryOptimizationIgnored = MutableStateFlow(batteryOptimizationManager.isIgnoringBatteryOptimizations())
     private val _mutedPeerIds = MutableStateFlow<Set<String>>(emptySet())
 
     val uiState: StateFlow<IntercomUiState> = combine(
@@ -68,6 +71,7 @@ class IntercomViewModel @Inject constructor(
         observeAudioLevelUseCase(),
         preferencesDataSource.callsignFlow,
         _isCallsignDialogOpen,
+        _isBatteryOptimizationIgnored,
         _mutedPeerIds,
         _errorFlow
     ) { args: Array<Any?> ->
@@ -76,7 +80,7 @@ class IntercomViewModel @Inject constructor(
         @Suppress("UNCHECKED_CAST")
         val peers = args[6] as List<MeshPeer>
         @Suppress("UNCHECKED_CAST")
-        val mutedPeers = args[11] as Set<String>
+        val mutedPeers = args[12] as Set<String>
         val mappedRiders = peers.map { peer ->
             Rider(
                 id = peer.id,
@@ -100,8 +104,9 @@ class IntercomViewModel @Inject constructor(
             micAudioLevel = level.normalizedLevel,
             callsign = args[9] as String,
             isCallsignDialogOpen = args[10] as Boolean,
+            isBatteryOptimizationIgnored = args[11] as Boolean,
             mutedPeerIds = mutedPeers,
-            errorMessage = args[12] as String?
+            errorMessage = args[13] as String?
         )
     }.stateIn(
         scope = viewModelScope,
@@ -121,6 +126,9 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.SetCallsignDialogVisible -> _isCallsignDialogOpen.value = event.isVisible
                 is IntercomUiEvent.SaveCallsign -> onSaveCallsign(event.callsign)
                 is IntercomUiEvent.TogglePeerMute -> onTogglePeerMute(event.peerId)
+                is IntercomUiEvent.RefreshBatteryStatus -> {
+                    _isBatteryOptimizationIgnored.value = batteryOptimizationManager.isIgnoringBatteryOptimizations()
+                }
                 is IntercomUiEvent.ClearError -> _errorFlow.value = null
             }
         }

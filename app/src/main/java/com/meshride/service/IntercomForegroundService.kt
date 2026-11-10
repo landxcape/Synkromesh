@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -58,6 +59,7 @@ class IntercomForegroundService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Default + Job())
     private var peerMonitoringJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     companion object {
         const val CHANNEL_ID = "meshride_intercom_channel"
@@ -69,6 +71,7 @@ class IntercomForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         acquireWakeLock()
+        acquireWifiLock()
         createNotificationChannel()
         setupHeadsetButtonInterception()
     }
@@ -185,10 +188,27 @@ class IntercomForegroundService : Service() {
         }
     }
 
+    private fun acquireWifiLock() {
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val lockType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+        } else {
+            @Suppress("DEPRECATION")
+            WifiManager.WIFI_MODE_FULL_HIGH_PERF
+        }
+        wifiLock = wifiManager?.createWifiLock(lockType, "MeshRide::IntercomWifiLock")?.apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
     override fun onDestroy() {
         peerMonitoringJob?.cancel()
         headsetMediaButtonManager.deactivateMediaSession()
         wakeLock?.let {
+            if (it.isHeld) it.release()
+        }
+        wifiLock?.let {
             if (it.isHeld) it.release()
         }
         serviceScope.cancel()

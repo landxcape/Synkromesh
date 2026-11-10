@@ -18,6 +18,7 @@ data class IntercomUiState(
     val meshState: MeshState = MeshState.DISCONNECTED,
     val callsign: String = "Rider 1",
     val isCallsignDialogOpen: Boolean = false,
+    val isBatteryOptimizationIgnored: Boolean = true,
     val mutedPeerIds: Set<String> = emptySet(),
     val peers: List<MeshPeer> = emptyList(),
     val riders: List<Rider> = emptyList(),
@@ -34,5 +35,6 @@ sealed interface IntercomUiEvent {
     data class SetCallsignDialogVisible(val isVisible: Boolean) : IntercomUiEvent
     data class SaveCallsign(val callsign: String) : IntercomUiEvent
     data class TogglePeerMute(val peerId: String) : IntercomUiEvent
+    data object RefreshBatteryStatus : IntercomUiEvent
     data object ClearError : IntercomUiEvent
 }

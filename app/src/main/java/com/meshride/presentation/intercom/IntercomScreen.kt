@@ -1,9 +1,12 @@
 package com.meshride.presentation.intercom
 
 import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,6 +14,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +37,7 @@ import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -68,6 +73,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.meshride.domain.model.AudioRoutingState
 import com.meshride.domain.model.IntercomMode
@@ -98,6 +105,10 @@ fun IntercomRoute(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.onEvent(IntercomUiEvent.RefreshBatteryStatus)
+    }
+
     LaunchedEffect(uiState.isSessionActive) {
         val serviceIntent = Intent(context, IntercomForegroundService::class.java).apply {
             action = if (uiState.isSessionActive) {
@@ -120,9 +131,17 @@ fun IntercomRoute(
         }
     }
 
+    val onRequestBatteryExemption = {
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:${context.packageName}")
+        }
+        context.startActivity(intent)
+    }
+
     IntercomScreen(
         uiState = uiState,
         onEvent = viewModel::onEvent,
+        onRequestBatteryExemption = onRequestBatteryExemption,
         snackbarHostState = snackbarHostState,
         modifier = modifier
     )
@@ -135,6 +154,7 @@ fun IntercomRoute(
 fun IntercomScreen(
     uiState: IntercomUiState,
     onEvent: (IntercomUiEvent) -> Unit,
+    onRequestBatteryExemption: () -> Unit,
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier
 ) {
@@ -182,6 +202,10 @@ fun IntercomScreen(
                     state = uiState.transmissionState,
                     isLoopbackActive = uiState.isLoopbackActive
                 )
+                if (!uiState.isBatteryOptimizationIgnored) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    BatteryOptimizationWarningCard(onRequestExemption = onRequestBatteryExemption)
+                }
                 Spacer(modifier = Modifier.height(10.dp))
                 AudioRoutingBadge(audioRouting = uiState.audioRouting)
                 Spacer(modifier = Modifier.height(10.dp))
@@ -826,6 +850,71 @@ private fun RiderItemRow(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BatteryOptimizationWarningCard(
+    onRequestExemption: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = AccentAmber.copy(alpha = 0.15f)),
+        border = BorderStroke(1.dp, AccentAmber)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "Battery Warning",
+                    tint = AccentAmber,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "Battery Optimization Active",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = AccentAmber,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "Exempt app to prevent Android from killing audio when screen is locked.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextPrimary,
+                        fontSize = 10.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(
+                onClick = onRequestExemption,
+                colors = ButtonDefaults.buttonColors(containerColor = AccentAmber),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                modifier = Modifier.height(32.dp)
+            ) {
+                Text(
+                    text = "EXEMPT",
+                    color = Color.Black,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp
+                )
             }
         }
     }

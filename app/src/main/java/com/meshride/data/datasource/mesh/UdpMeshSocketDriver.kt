@@ -70,6 +70,7 @@ class UdpMeshSocketDriver @Inject constructor() {
                     }
                 } catch (e: Exception) {
                     if (!_isSocketActive.value) break
+                    kotlinx.coroutines.delay(200)
                 }
             }
         }

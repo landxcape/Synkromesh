@@ -1,8 +1,13 @@
 package com.meshride.data.datasource.audio
 
+import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Build
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -11,11 +16,34 @@ import javax.inject.Singleton
 import kotlin.math.max
 
 @Singleton
-class AudioPlaybackDriver @Inject constructor() {
+class AudioPlaybackDriver @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
 
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var audioTrack: AudioTrack? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
+    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                // Duck volume to 25% while GPS navigation speaks (Google Maps / Waze)
+                audioTrack?.setVolume(0.25f)
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                // Navigation prompt complete -> restore 100% volume
+                audioTrack?.setVolume(1.0f)
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                audioTrack?.setVolume(0.0f)
+            }
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                audioTrack?.setVolume(0.0f)
+            }
+        }
+    }
 
     fun startPlayback(): Result<Unit> = runCatching {
         if (_isPlaying.value) return@runCatching
@@ -38,6 +66,24 @@ class AudioPlaybackDriver @Inject constructor() {
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
             .build()
 
+        // Request Audio Focus with ducking permission for motorcycle navigation audio
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                .setAudioAttributes(attributes)
+                .setAcceptsDelayedFocusGain(true)
+                .setOnAudioFocusChangeListener(audioFocusChangeListener)
+                .build()
+            audioManager.requestAudioFocus(request)
+            audioFocusRequest = request
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(
+                audioFocusChangeListener,
+                AudioManager.STREAM_VOICE_CALL,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+            )
+        }
+
         val track = AudioTrack.Builder()
             .setAudioAttributes(attributes)
             .setAudioFormat(format)
@@ -58,6 +104,15 @@ class AudioPlaybackDriver @Inject constructor() {
 
     fun stopPlayback(): Result<Unit> = runCatching {
         _isPlaying.value = false
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            audioFocusRequest = null
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(audioFocusChangeListener)
+        }
+
         audioTrack?.run {
             if (playState == AudioTrack.PLAYSTATE_PLAYING) {
                 stop()
