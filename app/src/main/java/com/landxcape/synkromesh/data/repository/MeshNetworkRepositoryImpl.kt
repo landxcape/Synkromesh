@@ -89,7 +89,17 @@ class MeshNetworkRepositoryImpl @Inject constructor(
         udpDriver.localCallsign = callsign
         udpDriver.activeChannel = channel
         udpDriver.activePackToken = activePackToken
-        udpDriver.startSocket().getOrThrow()
+
+        val hotspotNet = if (transportMode == TransportMode.HOTSPOT_UDP) {
+            wifiHotspotClientDriver.hotspotNetwork.value
+        } else null
+
+        val subnetBroadcast = if (transportMode == TransportMode.HOTSPOT_UDP) {
+            wifiHotspotClientDriver.subnetBroadcastIp.value
+        } else null
+
+        udpDriver.setBroadcastTarget(subnetBroadcast)
+        udpDriver.startSocket(hotspotNet).getOrThrow()
 
         // 2. Start automated zero-config BLE discovery & Wi-Fi Direct handshake for Channel (DUAL mode only)
         if (transportMode == TransportMode.DUAL) {
@@ -173,6 +183,7 @@ class MeshNetworkRepositoryImpl @Inject constructor(
         telemetryBroadcastJob?.cancel()
         telemetryBroadcastJob = null
         nearbyDriver.stop().getOrThrow()
+        udpDriver.setBroadcastTarget(null)
         udpDriver.stopSocket().getOrThrow()
         hotspotDriver.stopLocalHotspot().getOrThrow()
         wifiHotspotClientDriver.disconnect().getOrThrow()

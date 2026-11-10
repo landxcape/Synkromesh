@@ -2,6 +2,7 @@ package com.landxcape.synkromesh.data.datasource.mesh
 
 import com.landxcape.synkromesh.domain.model.AudioPacket
 import com.landxcape.synkromesh.domain.model.MeshPeer
+import android.net.Network
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -57,11 +58,18 @@ class UdpMeshSocketDriver @Inject constructor(
     private val _isSocketActive = MutableStateFlow(false)
     val isSocketActive: StateFlow<Boolean> = _isSocketActive.asStateFlow()
 
-    private val broadcastAddress: InetAddress by lazy {
-        InetAddress.getByName("255.255.255.255")
+    private var broadcastTarget: InetAddress = InetAddress.getByName("255.255.255.255")
+
+    fun setBroadcastTarget(ip: String?) {
+        broadcastTarget = try {
+            if (!ip.isNullOrBlank()) InetAddress.getByName(ip)
+            else InetAddress.getByName("255.255.255.255")
+        } catch (_: Exception) {
+            InetAddress.getByName("255.255.255.255")
+        }
     }
 
-    fun startSocket(): Result<Unit> = runCatching {
+    fun startSocket(network: Network? = null): Result<Unit> = runCatching {
         if (_isSocketActive.value) return@runCatching
 
         val socket = DatagramSocket(null).apply {
@@ -69,6 +77,10 @@ class UdpMeshSocketDriver @Inject constructor(
             broadcast = true
             bind(InetSocketAddress(UDP_PORT))
         }
+
+        try {
+            network?.bindSocket(socket)
+        } catch (_: Exception) {}
 
         datagramSocket = socket
         _isSocketActive.value = true
@@ -157,7 +169,7 @@ class UdpMeshSocketDriver @Inject constructor(
         }
 
         val data = buffer.array()
-        val datagram = DatagramPacket(data, data.size, broadcastAddress, UDP_PORT)
+        val datagram = DatagramPacket(data, data.size, broadcastTarget, UDP_PORT)
         socket.send(datagram)
     }
 
