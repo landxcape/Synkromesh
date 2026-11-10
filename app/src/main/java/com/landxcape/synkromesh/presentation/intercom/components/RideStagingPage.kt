@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -99,86 +100,106 @@ fun RideStagingPage(
     val haptic = LocalHapticFeedback.current
     val scrollState = rememberScrollState()
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(DarkBackground)
-            .padding(horizontal = 20.dp, vertical = 14.dp)
-            .verticalScroll(scrollState),
-        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 1. Top Technical Header Bar
-        TechnicalHeaderBar(
-            callsign = uiState.callsign,
-            isScoConnected = uiState.audioRouting.isScoConnected,
-            headsetName = uiState.audioRouting.connectedDeviceName,
-            onEditCallsign = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(true)) },
-            onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) }
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp, vertical = 14.dp)
+                .verticalScroll(scrollState),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // 1. Top Technical Header Bar
+            TechnicalHeaderBar(
+                callsign = uiState.callsign,
+                isScoConnected = uiState.audioRouting.isScoConnected,
+                headsetName = uiState.audioRouting.connectedDeviceName,
+                onEditCallsign = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(true)) },
+                onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) }
+            )
 
-        Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-        // 2. Linear-Style Segmented Mode Switcher
-        SegmentedModeSwitcher(
-            selectedMode = uiState.groupingMode,
-            onSelectMode = { mode ->
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onEvent(IntercomUiEvent.SelectGroupingMode(mode))
+            // 2. Linear-Style Segmented Mode Switcher
+            SegmentedModeSwitcher(
+                selectedMode = uiState.groupingMode,
+                onSelectMode = { mode ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onEvent(IntercomUiEvent.SelectGroupingMode(mode))
+                }
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 3. Dynamic Mode Detail Card (Smooth Morphing Content)
+            AnimatedContent(
+                targetState = uiState.groupingMode,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(150))
+                },
+                label = "modeCardTransition"
+            ) { mode ->
+                when (mode) {
+                    GroupingMode.LEAD -> LeadPackContent(
+                        channel = uiState.rideChannel,
+                        callsign = uiState.callsign,
+                        hotspotSsid = uiState.hotspotSsid,
+                        hotspotPassword = uiState.hotspotPassword,
+                        isHotspotActive = uiState.isHotspotActive,
+                        riderCount = uiState.riders.size,
+                        onToggleHotspot = { onEvent(IntercomUiEvent.ToggleHotspotClicked) }
+                    )
+                    GroupingMode.JOIN -> JoinPackContent(
+                        rideChannel = uiState.rideChannel,
+                        meshState = uiState.meshState,
+                        onScanQr = onScanQr
+                    )
+                    GroupingMode.OPEN_MESH -> OpenMeshContent(
+                        selectedChannel = uiState.rideChannel,
+                        onSelectChannel = { ch ->
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onEvent(IntercomUiEvent.SaveRideChannel(ch))
+                        }
+                    )
+                }
             }
-        )
 
-        Spacer(modifier = Modifier.height(16.dp))
+            // Bottom clearance for pinned action bar
+            Spacer(modifier = Modifier.height(100.dp))
+        }
 
-        // 3. Dynamic Mode Detail Card (Smooth Morphing Content)
-        AnimatedContent(
-            targetState = uiState.groupingMode,
-            transitionSpec = {
-                fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(150))
-            },
-            label = "modeCardTransition"
-        ) { mode ->
-            when (mode) {
-                GroupingMode.LEAD -> LeadPackContent(
-                    channel = uiState.rideChannel,
-                    callsign = uiState.callsign,
-                    hotspotSsid = uiState.hotspotSsid,
-                    hotspotPassword = uiState.hotspotPassword,
-                    isHotspotActive = uiState.isHotspotActive,
-                    riderCount = uiState.riders.size,
-                    onToggleHotspot = { onEvent(IntercomUiEvent.ToggleHotspotClicked) }
-                )
-                GroupingMode.JOIN -> JoinPackContent(
-                    rideChannel = uiState.rideChannel,
-                    meshState = uiState.meshState,
-                    onScanQr = onScanQr
-                )
-                GroupingMode.OPEN_MESH -> OpenMeshContent(
-                    selectedChannel = uiState.rideChannel,
-                    onSelectChannel = { ch ->
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onEvent(IntercomUiEvent.SaveRideChannel(ch))
+        // 4. Bottom-Pinned Hero Action Bar
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(),
+            color = DarkBackground.copy(alpha = 0.96f),
+            border = BorderStroke(1.dp, BorderSubtle)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+            ) {
+                PrecisionActionButton(
+                    text = "START INTERCOM",
+                    subtext = when (uiState.groupingMode) {
+                        GroupingMode.LEAD -> "BROADCASTING LEAD PACK // CH 0${uiState.rideChannel}"
+                        GroupingMode.JOIN -> "AUTO-SYNC WITH LEAD // CH 0${uiState.rideChannel}"
+                        GroupingMode.OPEN_MESH -> "ENGAGE OPEN MESH // CH 0${uiState.rideChannel}"
+                    },
+                    isOnline = uiState.groupingMode == GroupingMode.LEAD && uiState.isHotspotActive,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onEvent(IntercomUiEvent.EngageIntercom)
                     }
                 )
             }
         }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // 4. Primary Solid Action: Start Intercom
-        PrecisionActionButton(
-            text = "START INTERCOM",
-            subtext = when (uiState.groupingMode) {
-                GroupingMode.LEAD -> "BROADCASTING LEAD PACK"
-                GroupingMode.JOIN -> "CONNECT TO LEAD"
-                GroupingMode.OPEN_MESH -> "ENGAGE CHANNEL ${uiState.rideChannel}"
-            },
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                onEvent(IntercomUiEvent.EngageIntercom)
-            }
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
@@ -692,6 +713,7 @@ private fun OpenMeshContent(
 private fun PrecisionActionButton(
     text: String,
     subtext: String,
+    isOnline: Boolean = false,
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -706,7 +728,7 @@ private fun PrecisionActionButton(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(58.dp)
+            .height(62.dp)
             .scale(scale)
             .clip(RoundedCornerShape(14.dp))
             .clickable(
@@ -725,13 +747,24 @@ private fun PrecisionActionButton(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column {
-                Text(
-                    text = text,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.sp,
-                    color = DarkBackground
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isOnline) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(AccentGreen)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    Text(
+                        text = text,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.sp,
+                        color = DarkBackground
+                    )
+                }
                 Text(
                     text = subtext,
                     fontFamily = FontFamily.Monospace,
@@ -741,12 +774,20 @@ private fun PrecisionActionButton(
                 )
             }
 
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = null,
-                tint = DarkBackground,
-                modifier = Modifier.size(20.dp)
-            )
+            Surface(
+                modifier = Modifier.size(36.dp),
+                shape = CircleShape,
+                color = DarkBackground
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = TextPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
     }
 }

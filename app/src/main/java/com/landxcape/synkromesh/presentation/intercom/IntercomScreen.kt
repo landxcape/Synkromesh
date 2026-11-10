@@ -3,6 +3,7 @@ package com.landxcape.synkromesh.presentation.intercom
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -240,6 +241,17 @@ fun IntercomScreen(
             },
             onDismiss = { isChannelPickerOpen = false }
         )
+    }
+
+    // Back navigation handling:
+    // 1. If radar overlay is open, back gesture collapses the radar overlay
+    BackHandler(enabled = uiState.isRadarOverlayActive) {
+        onEvent(IntercomUiEvent.ToggleRadarOverlay)
+    }
+
+    // 2. If in Cockpit mode, back gesture returns to Staging Lobby rather than exiting the app
+    BackHandler(enabled = !uiState.isRadarOverlayActive && uiState.cockpitPhase == CockpitPhase.COCKPIT) {
+        onEvent(IntercomUiEvent.ReturnToStaging)
     }
 
     Scaffold(
