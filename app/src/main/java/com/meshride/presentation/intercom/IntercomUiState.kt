@@ -10,6 +10,8 @@ data class IntercomUiState(
     val selectedMode: IntercomMode = IntercomMode.PUSH_TO_TALK,
     val transmissionState: TransmissionState = TransmissionState.IDLE,
     val isMuted: Boolean = false,
+    val isLoopbackActive: Boolean = false,
+    val micAudioLevel: Float = 0.0f,
     val audioRouting: AudioRoutingState = AudioRoutingState(),
     val riders: List<Rider> = emptyList(),
     val errorMessage: String? = null
@@ -21,5 +23,6 @@ sealed interface IntercomUiEvent {
     data object ToggleMuteClicked : IntercomUiEvent
     data object ToggleSessionClicked : IntercomUiEvent
     data object ToggleBluetoothScoClicked : IntercomUiEvent
+    data object ToggleLoopbackClicked : IntercomUiEvent
     data object ClearError : IntercomUiEvent
 }

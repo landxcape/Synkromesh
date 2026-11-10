@@ -1,7 +1,9 @@
 package com.meshride.di
 
+import com.meshride.data.repository.AudioEngineRepositoryImpl
 import com.meshride.data.repository.BluetoothScoRepositoryImpl
 import com.meshride.data.repository.IntercomRepositoryImpl
+import com.meshride.domain.repository.AudioEngineRepository
 import com.meshride.domain.repository.BluetoothScoRepository
 import com.meshride.domain.repository.IntercomRepository
 import dagger.Binds
@@ -25,4 +27,10 @@ abstract class RepositoryModule {
     abstract fun bindBluetoothScoRepository(
         impl: BluetoothScoRepositoryImpl
     ): BluetoothScoRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindAudioEngineRepository(
+        impl: AudioEngineRepositoryImpl
+    ): AudioEngineRepository
 }

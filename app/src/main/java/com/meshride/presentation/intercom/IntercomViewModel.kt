@@ -2,16 +2,20 @@ package com.meshride.presentation.intercom
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.meshride.domain.model.AudioLevel
 import com.meshride.domain.model.AudioRoutingState
 import com.meshride.domain.model.IntercomMode
 import com.meshride.domain.model.Rider
 import com.meshride.domain.model.TransmissionState
+import com.meshride.domain.repository.AudioEngineRepository
 import com.meshride.domain.repository.BluetoothScoRepository
 import com.meshride.domain.repository.IntercomRepository
 import com.meshride.domain.usecase.HandlePttPressUseCase
+import com.meshride.domain.usecase.ObserveAudioLevelUseCase
 import com.meshride.domain.usecase.SetTransmissionModeUseCase
 import com.meshride.domain.usecase.StartIntercomSessionUseCase
 import com.meshride.domain.usecase.StopIntercomSessionUseCase
+import com.meshride.domain.usecase.ToggleLoopbackUseCase
 import com.meshride.domain.usecase.ToggleMicrophoneMuteUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,11 +30,14 @@ import javax.inject.Inject
 class IntercomViewModel @Inject constructor(
     private val intercomRepository: IntercomRepository,
     private val bluetoothScoRepository: BluetoothScoRepository,
+    private val audioEngineRepository: AudioEngineRepository,
     private val setTransmissionModeUseCase: SetTransmissionModeUseCase,
     private val handlePttPressUseCase: HandlePttPressUseCase,
     private val toggleMicrophoneMuteUseCase: ToggleMicrophoneMuteUseCase,
     private val startIntercomSessionUseCase: StartIntercomSessionUseCase,
-    private val stopIntercomSessionUseCase: StopIntercomSessionUseCase
+    private val stopIntercomSessionUseCase: StopIntercomSessionUseCase,
+    private val observeAudioLevelUseCase: ObserveAudioLevelUseCase,
+    private val toggleLoopbackUseCase: ToggleLoopbackUseCase
 ) : ViewModel() {
 
     private val _errorFlow = MutableStateFlow<String?>(null)
@@ -42,9 +49,12 @@ class IntercomViewModel @Inject constructor(
         intercomRepository.observeIsMuted(),
         bluetoothScoRepository.observeAudioRouting(),
         intercomRepository.observeConnectedRiders(),
+        audioEngineRepository.observeIsLoopbackActive(),
+        observeAudioLevelUseCase(),
         _errorFlow
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
+        val level = args[7] as AudioLevel
         IntercomUiState(
             isSessionActive = args[0] as Boolean,
             selectedMode = args[1] as IntercomMode,
@@ -52,7 +62,9 @@ class IntercomViewModel @Inject constructor(
             isMuted = args[3] as Boolean,
             audioRouting = args[4] as AudioRoutingState,
             riders = args[5] as List<Rider>,
-            errorMessage = args[6] as String?
+            isLoopbackActive = args[6] as Boolean,
+            micAudioLevel = level.normalizedLevel,
+            errorMessage = args[8] as String?
         )
     }.stateIn(
         scope = viewModelScope,
@@ -68,6 +80,7 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.ToggleMuteClicked -> onToggleMute()
                 is IntercomUiEvent.ToggleSessionClicked -> onToggleSession()
                 is IntercomUiEvent.ToggleBluetoothScoClicked -> onToggleSco()
+                is IntercomUiEvent.ToggleLoopbackClicked -> onToggleLoopback()
                 is IntercomUiEvent.ClearError -> _errorFlow.value = null
             }
         }
@@ -91,11 +104,19 @@ class IntercomViewModel @Inject constructor(
         }
     }
 
+    private suspend fun onToggleLoopback() {
+        toggleLoopbackUseCase().onFailure { err ->
+            _errorFlow.value = "Loopback toggle failed: ${err.message}"
+        }
+    }
+
     private suspend fun onToggleSession() {
         val currentState = uiState.value.isSessionActive
         val result = if (currentState) {
+            audioEngineRepository.stopAudioEngine()
             stopIntercomSessionUseCase()
         } else {
+            audioEngineRepository.startAudioEngine()
             startIntercomSessionUseCase()
         }
         result.onFailure { err ->

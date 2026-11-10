@@ -1,6 +1,8 @@
 package com.meshride.presentation.intercom
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -22,11 +24,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
+import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -43,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -110,9 +112,11 @@ fun IntercomScreen(
                 isSessionActive = uiState.isSessionActive,
                 audioRouting = uiState.audioRouting,
                 isMuted = uiState.isMuted,
+                isLoopbackActive = uiState.isLoopbackActive,
                 onToggleSession = { onEvent(IntercomUiEvent.ToggleSessionClicked) },
                 onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
-                onToggleMute = { onEvent(IntercomUiEvent.ToggleMuteClicked) }
+                onToggleMute = { onEvent(IntercomUiEvent.ToggleMuteClicked) },
+                onToggleLoopback = { onEvent(IntercomUiEvent.ToggleLoopbackClicked) }
             )
         }
     ) { paddingValues ->
@@ -129,7 +133,10 @@ fun IntercomScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Spacer(modifier = Modifier.height(8.dp))
-                TransmissionBanner(state = uiState.transmissionState)
+                TransmissionBanner(
+                    state = uiState.transmissionState,
+                    isLoopbackActive = uiState.isLoopbackActive
+                )
                 Spacer(modifier = Modifier.height(16.dp))
                 ModeSelectorGroup(
                     selectedMode = uiState.selectedMode,
@@ -137,11 +144,12 @@ fun IntercomScreen(
                 )
             }
 
-            // Central Touch Target (Glove-Friendly PTT)
+            // Central Touch Target (Glove-Friendly PTT with Voice Activity Meter)
             PttControlTarget(
                 mode = uiState.selectedMode,
                 transmissionState = uiState.transmissionState,
                 isSessionActive = uiState.isSessionActive,
+                micAudioLevel = uiState.micAudioLevel,
                 onPttChange = { pressed -> onEvent(IntercomUiEvent.PttPressed(pressed)) },
                 onToggleClick = { onEvent(IntercomUiEvent.ToggleMuteClicked) }
             )
@@ -171,9 +179,11 @@ private fun IntercomTopBar(
     isSessionActive: Boolean,
     audioRouting: AudioRoutingState,
     isMuted: Boolean,
+    isLoopbackActive: Boolean,
     onToggleSession: () -> Unit,
     onToggleSco: () -> Unit,
-    onToggleMute: () -> Unit
+    onToggleMute: () -> Unit,
+    onToggleLoopback: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -190,13 +200,36 @@ private fun IntercomTopBar(
                 color = TextPrimary
             )
             Text(
-                text = if (isSessionActive) "FULL DUPLEX ACTIVE" else "STANDBY",
+                text = when {
+                    isLoopbackActive -> "OPUS LOOPBACK ACTIVE"
+                    isSessionActive -> "FULL DUPLEX ACTIVE"
+                    else -> "STANDBY"
+                },
                 style = MaterialTheme.typography.labelLarge,
-                color = if (isSessionActive) AccentGreen else TextMuted
+                color = when {
+                    isLoopbackActive -> AccentAmber
+                    isSessionActive -> AccentGreen
+                    else -> TextMuted
+                }
             )
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // Loopback Self-Test Button
+            IconButton(
+                onClick = onToggleLoopback,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(if (isLoopbackActive) AccentAmber.copy(alpha = 0.2f) else DarkSurfaceElevated)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Hearing,
+                    contentDescription = "Loopback Test",
+                    tint = if (isLoopbackActive) AccentAmber else TextSecondary
+                )
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+
             // Mute Button
             IconButton(
                 onClick = onToggleMute,
@@ -210,7 +243,7 @@ private fun IntercomTopBar(
                     tint = if (isMuted) AccentRed else TextPrimary
                 )
             }
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
 
             // Bluetooth SCO Toggle
             IconButton(
@@ -225,7 +258,7 @@ private fun IntercomTopBar(
                     tint = if (audioRouting.isScoConnected) AccentCyan else TextSecondary
                 )
             }
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
 
             // Main Power Toggle
             IconButton(
@@ -245,12 +278,16 @@ private fun IntercomTopBar(
 }
 
 @Composable
-private fun TransmissionBanner(state: TransmissionState) {
-    val (bgColor, textColor, label) = when (state) {
-        TransmissionState.TRANSMITTING -> Triple(AccentGreen, Color.Black, "TRANSMITTING (TX)")
-        TransmissionState.RECEIVING -> Triple(AccentCyan, Color.Black, "RECEIVING (RX)")
-        TransmissionState.FULL_DUPLEX -> Triple(AccentAmber, Color.Black, "FULL DUPLEX ACTIVE")
-        TransmissionState.IDLE -> Triple(DarkSurfaceElevated, TextSecondary, "CHANNEL CLEAR")
+private fun TransmissionBanner(
+    state: TransmissionState,
+    isLoopbackActive: Boolean
+) {
+    val (bgColor, textColor, label) = when {
+        isLoopbackActive -> Triple(AccentAmber, Color.Black, "OPUS AUDIO LOOPBACK (TEST MODE)")
+        state == TransmissionState.TRANSMITTING -> Triple(AccentGreen, Color.Black, "TRANSMITTING (TX)")
+        state == TransmissionState.RECEIVING -> Triple(AccentCyan, Color.Black, "RECEIVING (RX)")
+        state == TransmissionState.FULL_DUPLEX -> Triple(AccentAmber, Color.Black, "FULL DUPLEX ACTIVE")
+        else -> Triple(DarkSurfaceElevated, TextSecondary, "CHANNEL CLEAR")
     }
 
     Box(
@@ -326,6 +363,7 @@ private fun PttControlTarget(
     mode: IntercomMode,
     transmissionState: TransmissionState,
     isSessionActive: Boolean,
+    micAudioLevel: Float,
     onPttChange: (Boolean) -> Unit,
     onToggleClick: () -> Unit
 ) {
@@ -337,12 +375,24 @@ private fun PttControlTarget(
         label = "ptt_outer"
     )
 
+    // Animated glow pulse based on microphone loudness (0.0 to 1.0)
+    val animatedScale by animateFloatAsState(
+        targetValue = if (isTransmitting) 1.0f + (micAudioLevel * 0.12f) else 1.0f,
+        label = "ptt_scale"
+    )
+
+    val animatedBorderWidth by animateDpAsState(
+        targetValue = if (isTransmitting) 4.dp + (micAudioLevel * 8f).dp else 4.dp,
+        label = "ptt_border"
+    )
+
     Box(
         modifier = Modifier
             .size(200.dp)
+            .scale(animatedScale)
             .clip(CircleShape)
             .background(DarkSurfaceElevated)
-            .border(4.dp, outerColor, CircleShape)
+            .border(animatedBorderWidth, outerColor, CircleShape)
             .pointerInput(mode, isSessionActive) {
                 if (!isSessionActive) return@pointerInput
 
@@ -356,11 +406,7 @@ private fun PttControlTarget(
                             }
                         )
                     }
-                    IntercomMode.TOGGLE -> {
-                        detectTapGestures {
-                            onToggleClick()
-                        }
-                    }
+                    IntercomMode.TOGGLE,
                     IntercomMode.ALWAYS_ON -> {
                         detectTapGestures {
                             onToggleClick()
