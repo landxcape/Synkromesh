@@ -1,5 +1,6 @@
 package com.meshride.presentation.intercom
 
+import android.content.Intent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -47,13 +48,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.meshride.domain.model.AudioRoutingState
 import com.meshride.domain.model.IntercomMode
+import com.meshride.domain.model.MeshState
 import com.meshride.domain.model.Rider
 import com.meshride.domain.model.TransmissionState
 import com.meshride.presentation.theme.AccentAmber
@@ -66,6 +70,7 @@ import com.meshride.presentation.theme.DarkSurfaceElevated
 import com.meshride.presentation.theme.TextMuted
 import com.meshride.presentation.theme.TextPrimary
 import com.meshride.presentation.theme.TextSecondary
+import com.meshride.service.IntercomForegroundService
 
 /**
  * Smart Parent Composable: Owns state collection and propagates data/callbacks downward.
@@ -75,8 +80,24 @@ fun IntercomRoute(
     modifier: Modifier = Modifier,
     viewModel: IntercomViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(uiState.isSessionActive) {
+        val serviceIntent = Intent(context, IntercomForegroundService::class.java).apply {
+            action = if (uiState.isSessionActive) {
+                IntercomForegroundService.ACTION_START
+            } else {
+                IntercomForegroundService.ACTION_STOP
+            }
+        }
+        if (uiState.isSessionActive) {
+            ContextCompat.startForegroundService(context, serviceIntent)
+        } else {
+            context.startService(serviceIntent)
+        }
+    }
 
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let { error ->
@@ -162,13 +183,30 @@ fun IntercomScreen(
                     .fillMaxWidth()
                     .padding(bottom = 16.dp)
             ) {
-                Text(
-                    text = "MESH PEERS (${uiState.riders.size})",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                RiderMeshList(riders = uiState.riders)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "MESH RIDERS (${uiState.riders.size})",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = TextSecondary
+                    )
+                    Text(
+                        text = uiState.meshState.statusLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = when (uiState.meshState) {
+                            MeshState.CONNECTED -> AccentGreen
+                            MeshState.SEARCHING -> AccentAmber
+                            MeshState.DISCONNECTED -> TextMuted
+                        }
+                    )
+                }
+                RiderMeshList(riders = uiState.riders, meshState = uiState.meshState)
             }
         }
     }
@@ -483,15 +521,54 @@ private fun PttControlTarget(
 }
 
 @Composable
-private fun RiderMeshList(riders: List<Rider>) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(140.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(riders, key = { it.id }) { rider ->
-            RiderItemRow(rider = rider)
+private fun RiderMeshList(riders: List<Rider>, meshState: MeshState) {
+    if (riders.isEmpty()) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(120.dp),
+            shape = RoundedCornerShape(8.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkSurface)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = when (meshState) {
+                        MeshState.CONNECTED -> "No other riders active yet"
+                        MeshState.SEARCHING -> "Discovering nearby helmet intercoms..."
+                        MeshState.DISCONNECTED -> "Intercom session standby"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = when (meshState) {
+                        MeshState.CONNECTED -> "Waiting for audio datagrams"
+                        MeshState.SEARCHING -> "BLE & Wi-Fi Direct zero-config pairing active"
+                        MeshState.DISCONNECTED -> "Tap power icon in top bar to start session"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted
+                )
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(140.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(riders, key = { it.id }) { rider ->
+                RiderItemRow(rider = rider)
+            }
         }
     }
 }

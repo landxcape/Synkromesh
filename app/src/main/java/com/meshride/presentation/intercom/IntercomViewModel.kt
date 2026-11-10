@@ -4,16 +4,21 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.meshride.data.datasource.audio.AudioToneFeedbackGenerator
 import com.meshride.data.datasource.audio.FeedbackTone
+import com.meshride.data.datasource.local.PreferencesDataSource
 import com.meshride.domain.model.AudioLevel
 import com.meshride.domain.model.AudioRoutingState
 import com.meshride.domain.model.IntercomMode
+import com.meshride.domain.model.MeshPeer
+import com.meshride.domain.model.MeshState
 import com.meshride.domain.model.Rider
 import com.meshride.domain.model.TransmissionState
 import com.meshride.domain.repository.AudioEngineRepository
 import com.meshride.domain.repository.BluetoothScoRepository
 import com.meshride.domain.repository.IntercomRepository
+import com.meshride.domain.repository.MeshNetworkRepository
 import com.meshride.domain.usecase.HandlePttPressUseCase
 import com.meshride.domain.usecase.ObserveAudioLevelUseCase
+import com.meshride.domain.usecase.ObservePeersUseCase
 import com.meshride.domain.usecase.SetTransmissionModeUseCase
 import com.meshride.domain.usecase.StartIntercomSessionUseCase
 import com.meshride.domain.usecase.StopIntercomSessionUseCase
@@ -24,6 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -33,6 +39,9 @@ class IntercomViewModel @Inject constructor(
     private val intercomRepository: IntercomRepository,
     private val bluetoothScoRepository: BluetoothScoRepository,
     private val audioEngineRepository: AudioEngineRepository,
+    private val meshNetworkRepository: MeshNetworkRepository,
+    private val observePeersUseCase: ObservePeersUseCase,
+    private val preferencesDataSource: PreferencesDataSource,
     private val setTransmissionModeUseCase: SetTransmissionModeUseCase,
     private val handlePttPressUseCase: HandlePttPressUseCase,
     private val toggleMicrophoneMuteUseCase: ToggleMicrophoneMuteUseCase,
@@ -51,23 +60,38 @@ class IntercomViewModel @Inject constructor(
         intercomRepository.observeTransmissionState(),
         intercomRepository.observeIsMuted(),
         bluetoothScoRepository.observeAudioRouting(),
-        intercomRepository.observeConnectedRiders(),
+        meshNetworkRepository.observeMeshState(),
+        observePeersUseCase(),
         audioEngineRepository.observeIsLoopbackActive(),
         observeAudioLevelUseCase(),
         _errorFlow
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
-        val level = args[7] as AudioLevel
+        val level = args[8] as AudioLevel
+        @Suppress("UNCHECKED_CAST")
+        val peers = args[6] as List<MeshPeer>
+        val mappedRiders = peers.map { peer ->
+            Rider(
+                id = peer.id,
+                callsign = peer.callsign,
+                isLocalUser = peer.isLocal,
+                isTransmitting = peer.isTransmitting,
+                signalStrengthDbm = peer.signalDbm,
+                latencyMs = 15L
+            )
+        }
         IntercomUiState(
             isSessionActive = args[0] as Boolean,
             selectedMode = args[1] as IntercomMode,
             transmissionState = args[2] as TransmissionState,
             isMuted = args[3] as Boolean,
             audioRouting = args[4] as AudioRoutingState,
-            riders = args[5] as List<Rider>,
-            isLoopbackActive = args[6] as Boolean,
+            meshState = args[5] as MeshState,
+            peers = peers,
+            riders = mappedRiders,
+            isLoopbackActive = args[7] as Boolean,
             micAudioLevel = level.normalizedLevel,
-            errorMessage = args[8] as String?
+            errorMessage = args[9] as String?
         )
     }.stateIn(
         scope = viewModelScope,
@@ -119,11 +143,15 @@ class IntercomViewModel @Inject constructor(
     private suspend fun onToggleSession() {
         val currentState = uiState.value.isSessionActive
         val result = if (currentState) {
+            meshNetworkRepository.stopMeshSession()
             audioEngineRepository.stopAudioEngine()
             stopIntercomSessionUseCase()
         } else {
-            audioEngineRepository.startAudioEngine()
-            startIntercomSessionUseCase()
+            val callsign = preferencesDataSource.callsignFlow.first()
+            startIntercomSessionUseCase().onSuccess {
+                audioEngineRepository.startAudioEngine()
+                meshNetworkRepository.startMeshSession(callsign)
+            }
         }
         result.onFailure { err ->
             _errorFlow.value = "Session failure: ${err.message}"

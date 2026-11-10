@@ -2,6 +2,8 @@ package com.meshride.presentation.intercom
 
 import com.meshride.domain.model.AudioRoutingState
 import com.meshride.domain.model.IntercomMode
+import com.meshride.domain.model.MeshPeer
+import com.meshride.domain.model.MeshState
 import com.meshride.domain.model.Rider
 import com.meshride.domain.model.TransmissionState
 
@@ -13,6 +15,8 @@ data class IntercomUiState(
     val isLoopbackActive: Boolean = false,
     val micAudioLevel: Float = 0.0f,
     val audioRouting: AudioRoutingState = AudioRoutingState(),
+    val meshState: MeshState = MeshState.DISCONNECTED,
+    val peers: List<MeshPeer> = emptyList(),
     val riders: List<Rider> = emptyList(),
     val errorMessage: String? = null
 )

@@ -15,15 +15,19 @@ import androidx.core.app.NotificationCompat
 import com.meshride.R
 import com.meshride.data.datasource.audio.AudioToneFeedbackGenerator
 import com.meshride.data.datasource.audio.FeedbackTone
+import com.meshride.data.datasource.local.PreferencesDataSource
+import com.meshride.domain.model.MeshState
 import com.meshride.domain.repository.AudioEngineRepository
 import com.meshride.domain.repository.BluetoothScoRepository
 import com.meshride.domain.repository.IntercomRepository
+import com.meshride.domain.repository.MeshNetworkRepository
 import com.meshride.presentation.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -40,12 +44,19 @@ class IntercomForegroundService : Service() {
     lateinit var audioEngineRepository: AudioEngineRepository
 
     @Inject
+    lateinit var meshNetworkRepository: MeshNetworkRepository
+
+    @Inject
+    lateinit var preferencesDataSource: PreferencesDataSource
+
+    @Inject
     lateinit var headsetMediaButtonManager: HeadsetMediaButtonManager
 
     @Inject
     lateinit var audioToneFeedbackGenerator: AudioToneFeedbackGenerator
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + Job())
+    private var peerMonitoringJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     companion object {
@@ -65,7 +76,10 @@ class IntercomForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                peerMonitoringJob?.cancel()
+                peerMonitoringJob = null
                 serviceScope.launch {
+                    meshNetworkRepository.stopMeshSession()
                     audioEngineRepository.stopAudioEngine()
                     bluetoothScoRepository.stopBluetoothSco()
                     intercomRepository.stopIntercomSession()
@@ -78,14 +92,32 @@ class IntercomForegroundService : Service() {
             else -> {
                 startForegroundWithNotification()
                 headsetMediaButtonManager.activateMediaSession()
+                startPeerNotificationMonitoring()
                 serviceScope.launch {
+                    val callsign = preferencesDataSource.callsignFlow.first()
                     intercomRepository.startIntercomSession()
                     audioEngineRepository.startAudioEngine()
                     bluetoothScoRepository.startBluetoothSco()
+                    meshNetworkRepository.startMeshSession(callsign)
                 }
             }
         }
         return START_STICKY
+    }
+
+    private fun startPeerNotificationMonitoring() {
+        peerMonitoringJob?.cancel()
+        peerMonitoringJob = serviceScope.launch {
+            meshNetworkRepository.observePeers().collect { peers ->
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val statusText = if (peers.isEmpty()) {
+                    "Mesh Searching • Helmet SCO Ready"
+                } else {
+                    "Mesh Active • ${peers.size} Rider(s) Connected"
+                }
+                notificationManager.notify(NOTIFICATION_ID, buildNotification(statusText))
+            }
+        }
     }
 
     private fun setupHeadsetButtonInterception() {
@@ -154,6 +186,7 @@ class IntercomForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        peerMonitoringJob?.cancel()
         headsetMediaButtonManager.deactivateMediaSession()
         wakeLock?.let {
             if (it.isHeld) it.release()
