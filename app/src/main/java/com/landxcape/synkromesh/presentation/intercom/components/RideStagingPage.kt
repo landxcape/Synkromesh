@@ -213,35 +213,35 @@ fun RideStagingPage(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // 4. Transmission Mode Selector (PTT / TOGGLE / ALWAYS ON)
-            TransmissionModeSection(
-                selectedMode = uiState.selectedMode,
-                onSelectMode = { mode ->
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onEvent(IntercomUiEvent.ModeChanged(mode))
-                }
-            )
-
-            // Clearance for bottom pinned button
-            Spacer(modifier = Modifier.height(96.dp))
+            // Clearance for 2-tier bottom pinned launch console
+            Spacer(modifier = Modifier.height(130.dp))
         }
 
-        // 5. Bottom-Pinned Hero Action Bar
+        // 5. Bottom-Pinned Hero Action Console (Unified Voice Trigger + Start Intercom)
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth(),
-            color = DarkBackground.copy(alpha = 0.96f),
+            color = DarkBackground.copy(alpha = 0.98f),
             border = BorderStroke(1.dp, BorderSubtle)
         ) {
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // Tier 1: Integrated Voice Trigger Selector
+                DockedVoiceTriggerSelector(
+                    selectedMode = uiState.selectedMode,
+                    onSelectMode = { mode ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onEvent(IntercomUiEvent.ModeChanged(mode))
+                    }
+                )
+
+                // Tier 2: 58dp Hero Action Button
                 PrecisionActionButton(
                     text = "START INTERCOM",
                     subtext = when (pagerState.currentPage) {
@@ -323,125 +323,73 @@ private fun BalancedSegmentedTabs(
 }
 
 @Composable
-private fun TransmissionModeSection(
+private fun DockedVoiceTriggerSelector(
     selectedMode: IntercomMode,
     onSelectMode: (IntercomMode) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = "VOICE TRIGGER",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextMuted,
-                letterSpacing = 1.sp
-            )
-
-            Text(
-                text = when (selectedMode) {
-                    IntercomMode.PUSH_TO_TALK -> "HOLD BUTTON TO TALK"
-                    IntercomMode.TOGGLE -> "TAP TO LATCH / UNMUTE"
-                    IntercomMode.ALWAYS_ON -> "CONTINUOUS OPEN INTERCOM"
-                },
-                fontFamily = FontFamily.Monospace,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = AccentCyan
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(44.dp),
-            color = DarkSurface,
-            shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, BorderSubtle)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(3.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                VoiceModePill(
-                    label = "PTT",
-                    icon = Icons.Default.TouchApp,
-                    isSelected = selectedMode == IntercomMode.PUSH_TO_TALK,
-                    onClick = { onSelectMode(IntercomMode.PUSH_TO_TALK) },
-                    modifier = Modifier.weight(1f)
-                )
-                VoiceModePill(
-                    label = "TOGGLE",
-                    icon = Icons.Default.Mic,
-                    isSelected = selectedMode == IntercomMode.TOGGLE,
-                    onClick = { onSelectMode(IntercomMode.TOGGLE) },
-                    modifier = Modifier.weight(1f)
-                )
-                VoiceModePill(
-                    label = "ALWAYS ON",
-                    icon = Icons.AutoMirrored.Filled.VolumeUp,
-                    isSelected = selectedMode == IntercomMode.ALWAYS_ON,
-                    onClick = { onSelectMode(IntercomMode.ALWAYS_ON) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun VoiceModePill(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val bgColor by animateColorAsState(
-        targetValue = if (isSelected) TextPrimary else Color.Transparent,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "modeBg"
-    )
-    val contentColor by animateColorAsState(
-        targetValue = if (isSelected) DarkBackground else TextMuted,
-        label = "modeColor"
-    )
-
     Surface(
-        modifier = modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable { onClick() },
-        color = bgColor,
-        shape = RoundedCornerShape(8.dp),
-        border = if (isSelected) null else BorderStroke(1.dp, Color.Transparent)
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(38.dp),
+        color = DarkSurface,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, BorderSubtle)
     ) {
         Row(
-            modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(2.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = contentColor,
-                modifier = Modifier.size(14.dp)
+            val modes = listOf(
+                Triple("PTT (HOLD)", Icons.Default.TouchApp, IntercomMode.PUSH_TO_TALK),
+                Triple("TOGGLE", Icons.Default.Mic, IntercomMode.TOGGLE),
+                Triple("ALWAYS ON", Icons.AutoMirrored.Filled.VolumeUp, IntercomMode.ALWAYS_ON)
             )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = label,
-                fontSize = 11.sp,
-                fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
-                color = contentColor
-            )
+
+            modes.forEach { (label, icon, mode) ->
+                val isSelected = selectedMode == mode
+                val bgColor by animateColorAsState(
+                    targetValue = if (isSelected) DarkSurfaceElevated else Color.Transparent,
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    label = "dockModeBg"
+                )
+                val textColor by animateColorAsState(
+                    targetValue = if (isSelected) TextPrimary else TextMuted,
+                    label = "dockModeText"
+                )
+
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onSelectMode(mode) },
+                    color = bgColor,
+                    shape = RoundedCornerShape(8.dp),
+                    border = if (isSelected) BorderStroke(1.dp, BorderFocus) else null
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = if (isSelected) AccentCyan else textColor,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = label,
+                            fontSize = 10.sp,
+                            fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
+                            color = textColor
+                        )
+                    }
+                }
+            }
         }
     }
 }

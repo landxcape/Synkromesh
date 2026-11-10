@@ -159,21 +159,7 @@ fun LiveCockpitPage(
                 onToggleClick = { onEvent(IntercomUiEvent.ToggleMuteClicked) }
             )
 
-            // 4. Quick Voice Trigger Selector Pill
-            VoiceTriggerModePill(
-                mode = uiState.selectedMode,
-                onCycleMode = {
-                    val nextMode = when (uiState.selectedMode) {
-                        IntercomMode.PUSH_TO_TALK -> IntercomMode.TOGGLE
-                        IntercomMode.TOGGLE -> IntercomMode.ALWAYS_ON
-                        IntercomMode.ALWAYS_ON -> IntercomMode.PUSH_TO_TALK
-                    }
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onEvent(IntercomUiEvent.ModeChanged(nextMode))
-                }
-            )
-
-            // 5. Low-Profile Telemetry Tape
+            // 4. Low-Profile Telemetry Tape
             TelemetryTape(
                 riders = uiState.riders,
                 onClick = {
@@ -182,24 +168,41 @@ fun LiveCockpitPage(
                 }
             )
 
-            // 6. Tactical Matte Action Keys
-            CockpitControlKeys(
-                isMuted = uiState.isMuted,
-                isSpeakerphoneOn = uiState.isSpeakerphoneOn,
-                isScoConnected = uiState.audioRouting.isScoConnected,
-                onToggleMute = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onEvent(IntercomUiEvent.ToggleMuteClicked)
-                },
-                onToggleSpeaker = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onEvent(IntercomUiEvent.ToggleSpeakerphoneClicked)
-                },
-                onStandby = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onEvent(IntercomUiEvent.ReturnToStaging)
-                }
-            )
+            // 5. Unified Bottom Tactical Console: Docked Mode Selector + Action Keys
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Docked 3-Way Mode Micro-Selector
+                CockpitModeSelector(
+                    selectedMode = uiState.selectedMode,
+                    onSelectMode = { mode ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onEvent(IntercomUiEvent.ModeChanged(mode))
+                    }
+                )
+
+                // Tactical Action Keys
+                CockpitControlKeys(
+                    isMuted = uiState.isMuted,
+                    isSpeakerphoneOn = uiState.isSpeakerphoneOn,
+                    isScoConnected = uiState.audioRouting.isScoConnected,
+                    onToggleMute = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onEvent(IntercomUiEvent.ToggleMuteClicked)
+                    },
+                    onToggleSpeaker = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onEvent(IntercomUiEvent.ToggleSpeakerphoneClicked)
+                    },
+                    onStandby = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onEvent(IntercomUiEvent.ReturnToStaging)
+                    }
+                )
+            }
         }
 
         // Tactical In-Ride Settings Bottom Sheet
@@ -805,36 +808,66 @@ private fun TacticalQuickSettingsSheet(
 }
 
 @Composable
-private fun VoiceTriggerModePill(
-    mode: IntercomMode,
-    onCycleMode: () -> Unit
+private fun CockpitModeSelector(
+    selectedMode: IntercomMode,
+    onSelectMode: (IntercomMode) -> Unit
 ) {
     Surface(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
-            .clickable { onCycleMode() },
+            .fillMaxWidth()
+            .height(34.dp),
         color = DarkSurface,
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, BorderFocus)
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, BorderSubtle)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(AccentCyan)
+            val modes = listOf(
+                "PTT" to IntercomMode.PUSH_TO_TALK,
+                "TOGGLE" to IntercomMode.TOGGLE,
+                "OPEN MIC" to IntercomMode.ALWAYS_ON
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "TRIGGER: ${mode.name.replace("_", " ")} ↻",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            )
+
+            modes.forEach { (label, mode) ->
+                val isSelected = selectedMode == mode
+                val bgColor by animateColorAsState(
+                    targetValue = if (isSelected) DarkSurfaceElevated else Color.Transparent,
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    label = "cockpitModeBg"
+                )
+                val textColor by animateColorAsState(
+                    targetValue = if (isSelected) TextPrimary else TextMuted,
+                    label = "cockpitModeText"
+                )
+
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { onSelectMode(mode) },
+                    color = bgColor,
+                    shape = RoundedCornerShape(6.dp),
+                    border = if (isSelected) BorderStroke(1.dp, BorderFocus) else null
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
+                            color = textColor
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -940,10 +973,7 @@ private fun CockpitControlKeys(
     onStandby: () -> Unit
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(bottom = 6.dp),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1043,7 +1073,9 @@ private fun CockpitRadarOverlay(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(20.dp),
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Header with Close

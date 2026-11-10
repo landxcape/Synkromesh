@@ -97,6 +97,14 @@ android {
             useLegacyPackaging = false
         }
     }
+
+    applicationVariants.all {
+        outputs.all {
+            val outputImpl = this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            val baseName = outputImpl?.outputFileName ?: "app-${buildType.name}.apk"
+            outputImpl?.outputFileName = "synkromesh-v${versionName}-b${versionCode}-${baseName}"
+        }
+    }
 }
 
 dependencies {
