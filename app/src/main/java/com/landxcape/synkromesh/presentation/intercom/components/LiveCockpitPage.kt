@@ -1,5 +1,6 @@
 package com.landxcape.synkromesh.presentation.intercom.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -28,12 +29,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -47,8 +50,13 @@ import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Radar
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -95,6 +103,7 @@ import com.landxcape.synkromesh.presentation.theme.TextSecondary
  * Minimalist, tool-grade automotive instrument.
  * Zero colorful gradients, zero cartoon bubbles. Precision audio reticle and live telemetry tape.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LiveCockpitPage(
     uiState: IntercomUiState,
@@ -102,6 +111,12 @@ fun LiveCockpitPage(
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
+    var isTacticalSettingsOpen by remember { mutableStateOf(false) }
+
+    // Intercept back gesture for tactical settings sheet first
+    BackHandler(enabled = isTacticalSettingsOpen) {
+        isTacticalSettingsOpen = false
+    }
 
     Box(
         modifier = modifier
@@ -111,17 +126,20 @@ fun LiveCockpitPage(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+                .statusBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // 1. Top Technical Status Strip
+            // 1. Top Technical Status Strip with 1-tap Settings
             CockpitStatusStrip(
                 channel = uiState.rideChannel,
                 meshState = uiState.meshState,
                 riderCount = uiState.riders.size,
                 isScoConnected = uiState.audioRouting.isScoConnected,
-                headsetName = uiState.audioRouting.connectedDeviceName
+                headsetName = uiState.audioRouting.connectedDeviceName,
+                onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
+                onOpenSettings = { isTacticalSettingsOpen = true }
             )
 
             // 2. Minimalist Speaker State Banner
@@ -131,23 +149,14 @@ fun LiveCockpitPage(
                 isMuted = uiState.isMuted
             )
 
-            // 3. Precision Voice Reticle (Hero Instrument)
+            // 3. Precision Voice Reticle (Hero Instrument - Pure Tactile Actuator, Zero Gesture Collision)
             VoiceReticleInstrument(
                 mode = uiState.selectedMode,
                 transmissionState = uiState.transmissionState,
                 isMuted = uiState.isMuted,
                 micAudioLevel = uiState.micAudioLevel,
                 onPttChange = { pressed -> onEvent(IntercomUiEvent.PttPressed(pressed)) },
-                onToggleClick = { onEvent(IntercomUiEvent.ToggleMuteClicked) },
-                onCycleMode = {
-                    val nextMode = when (uiState.selectedMode) {
-                        IntercomMode.PUSH_TO_TALK -> IntercomMode.TOGGLE
-                        IntercomMode.TOGGLE -> IntercomMode.ALWAYS_ON
-                        IntercomMode.ALWAYS_ON -> IntercomMode.PUSH_TO_TALK
-                    }
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onEvent(IntercomUiEvent.ModeChanged(nextMode))
-                }
+                onToggleClick = { onEvent(IntercomUiEvent.ToggleMuteClicked) }
             )
 
             // 4. Quick Voice Trigger Selector Pill
@@ -173,7 +182,7 @@ fun LiveCockpitPage(
                 }
             )
 
-            // 5. Tactical Matte Action Keys
+            // 6. Tactical Matte Action Keys
             CockpitControlKeys(
                 isMuted = uiState.isMuted,
                 isSpeakerphoneOn = uiState.isSpeakerphoneOn,
@@ -191,6 +200,30 @@ fun LiveCockpitPage(
                     onEvent(IntercomUiEvent.ReturnToStaging)
                 }
             )
+        }
+
+        // Tactical In-Ride Settings Bottom Sheet
+        if (isTacticalSettingsOpen) {
+            ModalBottomSheet(
+                onDismissRequest = { isTacticalSettingsOpen = false },
+                containerColor = DarkSurfaceElevated,
+                dragHandle = {
+                    Box(
+                        modifier = Modifier
+                            .padding(vertical = 12.dp)
+                            .width(40.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(BorderFocus)
+                    )
+                }
+            ) {
+                TacticalQuickSettingsSheet(
+                    uiState = uiState,
+                    onEvent = onEvent,
+                    onClose = { isTacticalSettingsOpen = false }
+                )
+            }
         }
 
         // Full 2D Tactical Radar Overlay (when tapped)
@@ -214,7 +247,9 @@ private fun CockpitStatusStrip(
     meshState: MeshState,
     riderCount: Int,
     isScoConnected: Boolean,
-    headsetName: String?
+    headsetName: String?,
+    onToggleSco: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -224,7 +259,7 @@ private fun CockpitStatusStrip(
     ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .padding(horizontal = 14.dp, vertical = 8.dp)
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
@@ -266,22 +301,57 @@ private fun CockpitStatusStrip(
                 )
             }
 
-            // Right: Bluetooth SCO indicator
+            // Right: Bluetooth SCO indicator + Quick Settings Button
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Headset,
-                    contentDescription = headsetName ?: "Headset",
-                    tint = if (isScoConnected) AccentGreen else TextMuted,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = if (isScoConnected) "SCO" else "SPK",
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isScoConnected) AccentGreen else TextMuted
-                )
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onToggleSco() },
+                    color = DarkSurfaceElevated,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, if (isScoConnected) BorderFocus else BorderSubtle)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Headset,
+                            contentDescription = headsetName ?: "Headset",
+                            tint = if (isScoConnected) AccentGreen else TextMuted,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = if (isScoConnected) "SCO" else "SPK",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isScoConnected) AccentGreen else TextMuted
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Surface(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onOpenSettings() },
+                    color = DarkSurfaceElevated,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, BorderSubtle)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Tactical Settings",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -341,8 +411,7 @@ private fun VoiceReticleInstrument(
     isMuted: Boolean,
     micAudioLevel: Float,
     onPttChange: (Boolean) -> Unit,
-    onToggleClick: () -> Unit,
-    onCycleMode: () -> Unit
+    onToggleClick: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     var isPressedLocally by remember { mutableStateOf(false) }
@@ -405,7 +474,7 @@ private fun VoiceReticleInstrument(
             }
         }
 
-        // Tactile Center Disc (Interactive Core)
+        // Tactile Center Disc (Interactive Core - Pure Single-Purpose Actuator)
         Surface(
             modifier = Modifier
                 .size(170.dp)
@@ -465,7 +534,9 @@ private fun VoiceReticleInstrument(
                         isTransmitting -> "LIVE"
                         isReceiving -> "INCOMING"
                         mode == IntercomMode.PUSH_TO_TALK -> "HOLD TALK"
-                        else -> "TAP TALK"
+                        mode == IntercomMode.TOGGLE -> "TAP TALK"
+                        mode == IntercomMode.ALWAYS_ON -> "OPEN MIC"
+                        else -> "TALK"
                     },
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Black,
@@ -474,17 +545,262 @@ private fun VoiceReticleInstrument(
                 )
 
                 Text(
-                    text = "${mode.name.replace("_", " ")} ↻",
+                    text = mode.name.replace("_", " "),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
-                    color = TextMuted,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .clickable { onCycleMode() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                    color = TextMuted
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun TacticalQuickSettingsSheet(
+    uiState: IntercomUiState,
+    onEvent: (IntercomUiEvent) -> Unit,
+    onClose: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "TACTICAL AUDIO & HARDWARE",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 0.5.sp,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "Live In-Ride Routing // Channel 0${uiState.rideChannel}",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    color = TextMuted
+                )
+            }
+
+            Surface(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .clickable { onClose() },
+                color = DarkBackground,
+                shape = CircleShape,
+                border = BorderStroke(1.dp, BorderSubtle)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+
+        // 1. Audio Routing Switches
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Bluetooth SCO Card
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
+                color = if (uiState.audioRouting.isScoConnected) DarkSurface else DarkBackground,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, if (uiState.audioRouting.isScoConnected) AccentGreen else BorderSubtle)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Headset,
+                            contentDescription = null,
+                            tint = if (uiState.audioRouting.isScoConnected) AccentGreen else TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "BT SCO",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (uiState.audioRouting.isScoConnected) AccentGreen else TextMuted
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (uiState.audioRouting.isScoConnected) {
+                            (uiState.audioRouting.connectedDeviceName ?: "HEADSET").take(12)
+                        } else {
+                            "CONNECT"
+                        },
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                }
+            }
+
+            // Speakerphone Card
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onEvent(IntercomUiEvent.ToggleSpeakerphoneClicked) },
+                color = if (uiState.isSpeakerphoneOn) DarkSurface else DarkBackground,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, if (uiState.isSpeakerphoneOn) AccentCyan else BorderSubtle)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Speaker,
+                            contentDescription = null,
+                            tint = if (uiState.isSpeakerphoneOn) AccentCyan else TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "SPEAKER",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (uiState.isSpeakerphoneOn) AccentCyan else TextMuted
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (uiState.isSpeakerphoneOn) "ACTIVE" else "OFF",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                }
+            }
+        }
+
+        // 2. Live Mic Input Level & Noise Gate (VAD) Slider
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = DarkSurface,
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, BorderSubtle)
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "MIC INPUT LEVEL",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextSecondary
+                    )
+                    Text(
+                        text = "${(uiState.micAudioLevel * 100).toInt()}%",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (uiState.micAudioLevel > 0.05f) AccentGreen else TextMuted
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                // Progress Bar
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp),
+                    color = DarkBackground,
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(fraction = uiState.micAudioLevel.coerceIn(0f, 1f))
+                                .background(if (uiState.micAudioLevel > 0.6f) AccentAmber else AccentGreen)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "VAD NOISE GATE SENSITIVITY",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextSecondary
+                    )
+                    Text(
+                        text = "${(uiState.vadThreshold * 100).toInt()}%",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AccentCyan
+                    )
+                }
+
+                Slider(
+                    value = uiState.vadThreshold,
+                    onValueChange = { onEvent(IntercomUiEvent.SaveVadThreshold(it)) },
+                    valueRange = 0.01f..0.20f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = AccentCyan,
+                        activeTrackColor = AccentCyan,
+                        inactiveTrackColor = DarkBackground
+                    )
+                )
+            }
+        }
+
+        // 3. Audio DSP Engine & Peer Diagnostics Footer
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "DSP: WEBRTC AEC + NS + AGC // OPUS 48kHz",
+                fontFamily = FontFamily.Monospace,
+                fontSize = 9.sp,
+                color = TextMuted
+            )
+            Text(
+                text = "${uiState.riders.size} PEERS",
+                fontFamily = FontFamily.Monospace,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = AccentGreen
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 

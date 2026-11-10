@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -33,8 +35,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
@@ -98,21 +103,21 @@ fun RideStagingPage(
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
-    // Map GroupingMode to Page Index: 0 -> OPEN_MESH, 1 -> LEAD, 2 -> JOIN
+    // Map GroupingMode to Page Index: 0 -> AUDIO, 1 -> OPEN_MESH, 2 -> LEAD, 3 -> JOIN
     val initialPage = when (uiState.groupingMode) {
-        GroupingMode.OPEN_MESH -> 0
-        GroupingMode.LEAD -> 1
-        GroupingMode.JOIN -> 2
+        GroupingMode.OPEN_MESH -> 0 // Open on Audio & Preflight by default for hardware readiness
+        GroupingMode.LEAD -> 2
+        GroupingMode.JOIN -> 3
     }
-    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { 3 })
+    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { 4 })
 
     // Synchronize pager swipe with ViewModel groupingMode
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }.collect { page ->
             val targetMode = when (page) {
-                0 -> GroupingMode.OPEN_MESH
-                1 -> GroupingMode.LEAD
-                2 -> GroupingMode.JOIN
+                0, 1 -> GroupingMode.OPEN_MESH
+                2 -> GroupingMode.LEAD
+                3 -> GroupingMode.JOIN
                 else -> GroupingMode.OPEN_MESH
             }
             if (targetMode != uiState.groupingMode) {
@@ -125,9 +130,9 @@ fun RideStagingPage(
     // Keep pager synced if external state changes groupingMode
     LaunchedEffect(uiState.groupingMode) {
         val targetIndex = when (uiState.groupingMode) {
-            GroupingMode.OPEN_MESH -> 0
-            GroupingMode.LEAD -> 1
-            GroupingMode.JOIN -> 2
+            GroupingMode.OPEN_MESH -> if (pagerState.currentPage == 0) 0 else 1
+            GroupingMode.LEAD -> 2
+            GroupingMode.JOIN -> 3
         }
         if (pagerState.currentPage != targetIndex) {
             pagerState.animateScrollToPage(targetIndex)
@@ -142,7 +147,8 @@ fun RideStagingPage(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .statusBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
                 .verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -152,12 +158,13 @@ fun RideStagingPage(
                 isScoConnected = uiState.audioRouting.isScoConnected,
                 headsetName = uiState.audioRouting.connectedDeviceName,
                 onEditCallsign = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(true)) },
-                onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) }
+                onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
+                onOpenPreflight = { onEvent(IntercomUiEvent.SetPermissionSheetVisible(true)) }
             )
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // 2. Perfectly Aligned Segmented Tabs (OPEN MESH is first)
+            // 2. Perfectly Aligned 4-Segment Tabs
             BalancedSegmentedTabs(
                 selectedPage = pagerState.currentPage,
                 onSelectPage = { pageIndex ->
@@ -178,14 +185,18 @@ fun RideStagingPage(
                     .height(370.dp)
             ) { page ->
                 when (page) {
-                    0 -> OpenMeshContent(
+                    0 -> AudioHardwareContent(
+                        uiState = uiState,
+                        onEvent = onEvent
+                    )
+                    1 -> OpenMeshContent(
                         selectedChannel = uiState.rideChannel,
                         onSelectChannel = { ch ->
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onEvent(IntercomUiEvent.SaveRideChannel(ch))
                         }
                     )
-                    1 -> LeadPackContent(
+                    2 -> LeadPackContent(
                         channel = uiState.rideChannel,
                         callsign = uiState.callsign,
                         hotspotSsid = uiState.hotspotSsid,
@@ -194,7 +205,7 @@ fun RideStagingPage(
                         riderCount = uiState.riders.size,
                         onToggleHotspot = { onEvent(IntercomUiEvent.ToggleHotspotClicked) }
                     )
-                    2 -> JoinPackContent(
+                    3 -> JoinPackContent(
                         rideChannel = uiState.rideChannel,
                         meshState = uiState.meshState,
                         onScanQr = onScanQr
@@ -234,12 +245,13 @@ fun RideStagingPage(
                 PrecisionActionButton(
                     text = "START INTERCOM",
                     subtext = when (pagerState.currentPage) {
-                        0 -> "ENGAGE OPEN MESH // CH 0${uiState.rideChannel}"
-                        1 -> "BROADCASTING LEAD PACK // CH 0${uiState.rideChannel}"
-                        2 -> "AUTO-SYNC WITH LEAD // CH 0${uiState.rideChannel}"
+                        0 -> "ENGAGE MESH // AUDIO PREFLIGHT READY"
+                        1 -> "ENGAGE OPEN MESH // CH 0${uiState.rideChannel}"
+                        2 -> "BROADCASTING LEAD PACK // CH 0${uiState.rideChannel}"
+                        3 -> "AUTO-SYNC WITH LEAD // CH 0${uiState.rideChannel}"
                         else -> "ENGAGE MESH"
                     },
-                    isOnline = pagerState.currentPage == 1 && uiState.isHotspotActive,
+                    isOnline = pagerState.currentPage == 2 && uiState.isHotspotActive,
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onEvent(IntercomUiEvent.EngageIntercom)
@@ -269,7 +281,7 @@ private fun BalancedSegmentedTabs(
                 .padding(3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val tabs = listOf("OPEN MESH", "LEAD PACK", "JOIN PACK")
+            val tabs = listOf("AUDIO", "OPEN MESH", "LEAD PACK", "JOIN PACK")
             tabs.forEachIndexed { index, title ->
                 val isSelected = selectedPage == index
                 val bgColor by animateColorAsState(
@@ -298,9 +310,9 @@ private fun BalancedSegmentedTabs(
                     ) {
                         Text(
                             text = title,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
-                            letterSpacing = 0.5.sp,
+                            letterSpacing = 0.2.sp,
                             color = textColor
                         )
                     }
@@ -440,7 +452,8 @@ private fun TechnicalHeaderBar(
     isScoConnected: Boolean,
     headsetName: String?,
     onEditCallsign: () -> Unit,
-    onToggleSco: () -> Unit
+    onToggleSco: () -> Unit,
+    onOpenPreflight: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -482,36 +495,311 @@ private fun TechnicalHeaderBar(
             )
         }
 
-        // Right: Hardware SCO Audio Pill
-        Surface(
+        // Right: Hardware SCO Audio Pill + Preflight Settings Button
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onToggleSco() },
+                color = DarkSurface,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, if (isScoConnected) BorderFocus else BorderSubtle)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(if (isScoConnected) AccentGreen else AccentAmber)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isScoConnected) {
+                            (headsetName ?: "BT HEADSET").take(12).uppercase()
+                        } else {
+                            "PHONE MIC"
+                        },
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Surface(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onOpenPreflight() },
+                color = DarkSurface,
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, BorderSubtle)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Preflight Settings",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AudioHardwareContent(
+    uiState: IntercomUiState,
+    onEvent: (IntercomUiEvent) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = DarkSurface,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, BorderSubtle)
+    ) {
+        Column(
             modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
-                .clickable { onToggleSco() },
-            color = DarkSurface,
-            shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, if (isScoConnected) BorderFocus else BorderSubtle)
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // Title & Preflight Status
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(if (isScoConnected) AccentGreen else AccentAmber)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (isScoConnected) {
-                        (headsetName ?: "BT HEADSET").take(14).uppercase()
-                    } else {
-                        "PHONE MIC"
-                    },
+                    text = "HARDWARE PREFLIGHT",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = TextMuted,
+                    letterSpacing = 1.sp
+                )
+
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { onEvent(IntercomUiEvent.SetPermissionSheetVisible(true)) },
+                    color = if (uiState.preflightStatus.isReadyForIntercom) AccentGreen.copy(alpha = 0.15f) else AccentAmber.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, if (uiState.preflightStatus.isReadyForIntercom) AccentGreen else AccentAmber)
+                ) {
+                    Text(
+                        text = if (uiState.preflightStatus.isReadyForIntercom) "SYSTEM READY" else "PERMISSIONS",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (uiState.preflightStatus.isReadyForIntercom) AccentGreen else AccentAmber,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            // 1. Live VU Mic Audio Level Meter
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "LIVE MIC INPUT LEVEL",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextSecondary
+                    )
+                    Text(
+                        text = "${(uiState.micAudioLevel * 100).toInt()}%",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (uiState.micAudioLevel > 0.05f) AccentGreen else TextMuted
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                // Progress Bar
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp),
+                    color = DarkBackground,
+                    shape = RoundedCornerShape(4.dp),
+                    border = BorderStroke(1.dp, BorderSubtle)
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(fraction = uiState.micAudioLevel.coerceIn(0f, 1f))
+                                .background(if (uiState.micAudioLevel > 0.6f) AccentAmber else AccentGreen)
+                        )
+                    }
+                }
+            }
+
+            // 2. Audio Routing Cards: Bluetooth SCO & Speakerphone
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Bluetooth SCO Card
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
+                    color = if (uiState.audioRouting.isScoConnected) DarkSurfaceElevated else DarkBackground,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, if (uiState.audioRouting.isScoConnected) AccentGreen else BorderSubtle)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Headset,
+                                contentDescription = null,
+                                tint = if (uiState.audioRouting.isScoConnected) AccentGreen else TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "BLUETOOTH",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (uiState.audioRouting.isScoConnected) AccentGreen else TextMuted
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (uiState.audioRouting.isScoConnected) {
+                                (uiState.audioRouting.connectedDeviceName ?: "HELMET HEADSET").take(12)
+                            } else {
+                                "CONNECT"
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                    }
+                }
+
+                // Speakerphone Card
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onEvent(IntercomUiEvent.ToggleSpeakerphoneClicked) },
+                    color = if (uiState.isSpeakerphoneOn) DarkSurfaceElevated else DarkBackground,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, if (uiState.isSpeakerphoneOn) AccentCyan else BorderSubtle)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Speaker,
+                                contentDescription = null,
+                                tint = if (uiState.isSpeakerphoneOn) AccentCyan else TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "SPEAKER",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (uiState.isSpeakerphoneOn) AccentCyan else TextMuted
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (uiState.isSpeakerphoneOn) "ACTIVE" else "OFF",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                    }
+                }
+            }
+
+            // 3. Audio Loopback Self-Test Button
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onEvent(IntercomUiEvent.ToggleLoopbackClicked) },
+                color = if (uiState.isLoopbackActive) AccentGreen.copy(alpha = 0.15f) else DarkBackground,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, if (uiState.isLoopbackActive) AccentGreen else BorderSubtle)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(if (uiState.isLoopbackActive) AccentGreen else TextMuted)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "LOOPBACK SELF-TEST",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = if (uiState.isLoopbackActive) "Echoing mic to headset in real-time" else "Tap to verify audio pipeline & latency",
+                                fontSize = 10.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = if (uiState.isLoopbackActive) "STOP" else "TEST",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = if (uiState.isLoopbackActive) AccentGreen else TextPrimary
+                    )
+                }
+            }
+
+            // 4. DSP Status Indicators
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "AEC // NS // AGC : ACTIVE",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    color = AccentGreen
+                )
+                Text(
+                    text = "OPUS 48kHz CVBR",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    color = TextMuted
                 )
             }
         }
