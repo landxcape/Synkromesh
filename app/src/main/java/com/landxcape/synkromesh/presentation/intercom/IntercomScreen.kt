@@ -199,6 +199,7 @@ fun IntercomScreen(
             vadThreshold = uiState.vadThreshold,
             opusBitrate = uiState.opusBitrate,
             isLoopbackActive = uiState.isLoopbackActive,
+            isSpeakerphoneOn = uiState.isSpeakerphoneOn,
             audioRouting = uiState.audioRouting,
             pairedHeadsets = uiState.pairedHeadsets,
             preflightStatus = uiState.preflightStatus,
@@ -207,6 +208,7 @@ fun IntercomScreen(
             onVadThresholdChanged = { onEvent(IntercomUiEvent.SaveVadThreshold(it)) },
             onOpusBitrateChanged = { onEvent(IntercomUiEvent.SaveOpusBitrate(it)) },
             onToggleLoopback = { onEvent(IntercomUiEvent.ToggleLoopbackClicked) },
+            onToggleSpeakerphone = { onEvent(IntercomUiEvent.ToggleSpeakerphoneClicked) },
             onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
             onOpenPermissions = {
                 onEvent(IntercomUiEvent.SetSettingsVisible(false))
@@ -242,11 +244,13 @@ fun IntercomScreen(
                 audioRouting = uiState.audioRouting,
                 isMuted = uiState.isMuted,
                 isLoopbackActive = uiState.isLoopbackActive,
+                isSpeakerphoneOn = uiState.isSpeakerphoneOn,
                 onOpenCallsignDialog = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(true)) },
                 onToggleSession = { onEvent(IntercomUiEvent.ToggleSessionClicked) },
                 onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
                 onToggleMute = { onEvent(IntercomUiEvent.ToggleMuteClicked) },
                 onToggleLoopback = { onEvent(IntercomUiEvent.ToggleLoopbackClicked) },
+                onToggleSpeakerphone = { onEvent(IntercomUiEvent.ToggleSpeakerphoneClicked) },
                 onOpenRadar = { onEvent(IntercomUiEvent.SetConnectionSetupVisible(true)) },
                 onOpenSettings = { onEvent(IntercomUiEvent.SetSettingsVisible(true)) }
             )
@@ -284,7 +288,10 @@ fun IntercomScreen(
                     BatteryOptimizationWarningCard(onRequestExemption = onRequestBatteryExemption)
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                AudioRoutingBadge(audioRouting = uiState.audioRouting)
+                AudioRoutingBadge(
+                    audioRouting = uiState.audioRouting,
+                    isSpeakerphoneOn = uiState.isSpeakerphoneOn
+                )
                 Spacer(modifier = Modifier.height(8.dp))
                 ModeSelectorGroup(
                     selectedMode = uiState.selectedMode,
@@ -361,11 +368,13 @@ private fun IntercomTopBar(
     audioRouting: AudioRoutingState,
     isMuted: Boolean,
     isLoopbackActive: Boolean,
+    isSpeakerphoneOn: Boolean,
     onOpenCallsignDialog: () -> Unit,
     onToggleSession: () -> Unit,
     onToggleSco: () -> Unit,
     onToggleMute: () -> Unit,
     onToggleLoopback: () -> Unit,
+    onToggleSpeakerphone: () -> Unit,
     onOpenRadar: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
@@ -452,6 +461,21 @@ private fun IntercomTopBar(
                     imageVector = Icons.Default.Settings,
                     contentDescription = "Settings",
                     tint = TextPrimary
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+
+            // Speakerphone Toggle
+            IconButton(
+                onClick = onToggleSpeakerphone,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(if (isSpeakerphoneOn) AccentCyan.copy(alpha = 0.2f) else DarkSurfaceElevated)
+            ) {
+                Icon(
+                    imageVector = if (isSpeakerphoneOn) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                    contentDescription = "Speakerphone",
+                    tint = if (isSpeakerphoneOn) AccentCyan else TextSecondary
                 )
             }
             Spacer(modifier = Modifier.width(4.dp))
@@ -650,7 +674,10 @@ private fun TransmissionBanner(
 }
 
 @Composable
-private fun AudioRoutingBadge(audioRouting: AudioRoutingState) {
+private fun AudioRoutingBadge(
+    audioRouting: AudioRoutingState,
+    isSpeakerphoneOn: Boolean
+) {
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = DarkSurfaceElevated
@@ -660,16 +687,24 @@ private fun AudioRoutingBadge(audioRouting: AudioRoutingState) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = if (audioRouting.isScoConnected) Icons.Default.BluetoothConnected else Icons.Default.Mic,
+                imageVector = when {
+                    audioRouting.isScoConnected -> Icons.Default.BluetoothConnected
+                    isSpeakerphoneOn -> Icons.AutoMirrored.Filled.VolumeUp
+                    else -> Icons.Default.Mic
+                },
                 contentDescription = null,
-                tint = if (audioRouting.isScoConnected) AccentCyan else TextSecondary,
+                tint = if (audioRouting.isScoConnected || isSpeakerphoneOn) AccentCyan else TextSecondary,
                 modifier = Modifier.size(16.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = audioRouting.deviceDescription.uppercase(),
+                text = when {
+                    audioRouting.isScoConnected -> audioRouting.deviceDescription.uppercase()
+                    isSpeakerphoneOn -> "LOUDSPEAKER (PHONE SPEAKERS)"
+                    else -> "EARPIECE / RECEIVER"
+                },
                 style = MaterialTheme.typography.labelMedium,
-                color = if (audioRouting.isScoConnected) AccentCyan else TextSecondary,
+                color = if (audioRouting.isScoConnected || isSpeakerphoneOn) AccentCyan else TextSecondary,
                 fontWeight = FontWeight.SemiBold
             )
         }

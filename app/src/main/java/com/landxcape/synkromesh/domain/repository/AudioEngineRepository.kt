@@ -9,10 +9,13 @@ interface AudioEngineRepository {
     fun observeIsLoopbackActive(): Flow<Boolean>
     fun observeIsAudioEngineActive(): Flow<Boolean>
     fun observeOutgoingPackets(): Flow<AudioPacket>
+    fun observeIsSpeakerphoneOn(): Flow<Boolean>
 
     suspend fun startAudioEngine(): Result<Unit>
     suspend fun stopAudioEngine(): Result<Unit>
     suspend fun setLoopbackMode(enabled: Boolean): Result<Unit>
     suspend fun toggleLoopbackMode(): Result<Boolean>
+    suspend fun setSpeakerphone(enabled: Boolean): Result<Unit>
+    suspend fun toggleSpeakerphone(): Result<Boolean>
     suspend fun playIncomingPacket(packet: AudioPacket): Result<Unit>
 }

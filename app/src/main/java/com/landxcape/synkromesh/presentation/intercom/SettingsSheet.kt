@@ -2,10 +2,8 @@ package com.landxcape.synkromesh.presentation.intercom
 
 import android.content.Intent
 import android.provider.Settings
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -17,20 +15,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Bluetooth
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Hearing
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -51,7 +43,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -77,6 +68,7 @@ fun SettingsSheet(
     vadThreshold: Float,
     opusBitrate: Int,
     isLoopbackActive: Boolean,
+    isSpeakerphoneOn: Boolean,
     audioRouting: AudioRoutingState,
     pairedHeadsets: List<PairedHeadset>,
     preflightStatus: PreflightStatus,
@@ -85,6 +77,7 @@ fun SettingsSheet(
     onVadThresholdChanged: (Float) -> Unit,
     onOpusBitrateChanged: (Int) -> Unit,
     onToggleLoopback: () -> Unit,
+    onToggleSpeakerphone: () -> Unit,
     onToggleSco: () -> Unit,
     onOpenPermissions: () -> Unit,
     onDismiss: () -> Unit,
@@ -190,6 +183,29 @@ fun SettingsSheet(
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    // Loudspeaker Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = "Loud Speakerphone", fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                            Text(
+                                text = "Play through high-volume phone speaker when no helmet is connected",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = isSpeakerphoneOn,
+                            onCheckedChange = { onToggleSpeakerphone() },
+                            colors = SwitchDefaults.colors(checkedThumbColor = AccentCyan, checkedTrackColor = AccentCyan.copy(alpha = 0.5f))
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
                     Text(
                         text = "VAD Noise Gate Sensitivity: ${(vadThreshold * 100).toInt()}%",
                         style = MaterialTheme.typography.bodyMedium,

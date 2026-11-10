@@ -1,5 +1,6 @@
 package com.landxcape.synkromesh.data.repository
 
+import com.landxcape.synkromesh.data.datasource.local.PreferencesDataSource
 import com.landxcape.synkromesh.data.datasource.mesh.LocalHotspotDriver
 import com.landxcape.synkromesh.data.datasource.mesh.LocationTelemetryDataSource
 import com.landxcape.synkromesh.data.datasource.mesh.NearbyMeshDiscoveryDriver
@@ -14,6 +15,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,23 +27,50 @@ class MeshNetworkRepositoryImpl @Inject constructor(
     private val nearbyDriver: NearbyMeshDiscoveryDriver,
     private val hotspotDriver: LocalHotspotDriver,
     private val locationDataSource: LocationTelemetryDataSource,
-    private val audioEngineRepository: AudioEngineRepository
+    private val audioEngineRepository: AudioEngineRepository,
+    private val preferencesDataSource: PreferencesDataSource
 ) : MeshNetworkRepository {
 
     private val meshScope = CoroutineScope(Dispatchers.IO)
     private var audioBridgeJob: Job? = null
     private var telemetryBroadcastJob: Job? = null
+    private var heartbeatJob: Job? = null
 
-    override fun observeMeshState(): Flow<MeshState> = nearbyDriver.meshState
-    override fun observePeers(): Flow<List<MeshPeer>> = nearbyDriver.peersFlow
+    override fun observeMeshState(): Flow<MeshState> = combine(
+        nearbyDriver.meshState,
+        udpDriver.udpPeersFlow
+    ) { nearbyState, udpPeers ->
+        when {
+            udpPeers.isNotEmpty() -> MeshState.CONNECTED
+            nearbyState == MeshState.CONNECTED -> MeshState.CONNECTED
+            nearbyState == MeshState.SEARCHING -> MeshState.SEARCHING
+            else -> MeshState.DISCONNECTED
+        }
+    }
+
+    // DUAL-LAYER PEER AGGREGATION: Combines Nearby Connections + UDP Broadcast peers
+    override fun observePeers(): Flow<List<MeshPeer>> = combine(
+        nearbyDriver.peersFlow,
+        udpDriver.udpPeersFlow
+    ) { nearbyPeers, udpPeers ->
+        val combined = (nearbyPeers + udpPeers)
+        // Group by callsign or ID to avoid duplicates
+        combined.distinctBy { it.callsign.lowercase().trim() }
+    }
+
     override fun observeIncomingAudioPackets(): Flow<AudioPacket> = udpDriver.incomingAudioFlow
 
     override suspend fun startMeshSession(callsign: String, channel: Int): Result<Unit> = runCatching {
-        // 1. Open low-latency UDP socket
+        val deviceId = preferencesDataSource.getDeviceId()
+
+        // 1. Configure and start UDP broadcast driver
+        udpDriver.localDeviceId = deviceId
+        udpDriver.localCallsign = callsign
+        udpDriver.activeChannel = channel
         udpDriver.startSocket().getOrThrow()
 
         // 2. Start automated zero-config BLE discovery & Wi-Fi Direct handshake for Channel
-        nearbyDriver.startDiscoveryAndAdvertising(callsign, channel).getOrThrow()
+        nearbyDriver.startDiscoveryAndAdvertising(callsign, channel, deviceId).getOrThrow()
 
         // 3. Start full-duplex audio bridging over UDP
         audioBridgeJob?.cancel()
@@ -51,7 +81,7 @@ class MeshNetworkRepositoryImpl @Inject constructor(
                     udpDriver.sendPacket(outgoingPacket)
                 }
             }
-            // Incoming reception: UDP socket -> Opus decode -> helmet speaker
+            // Incoming reception: UDP socket -> Opus decode -> loud speaker or helmet
             launch {
                 udpDriver.incomingAudioFlow.collect { incomingPacket ->
                     audioEngineRepository.playIncomingPacket(incomingPacket)
@@ -59,7 +89,16 @@ class MeshNetworkRepositoryImpl @Inject constructor(
             }
         }
 
-        // 4. Start periodic telemetry broadcasting for distance calculation
+        // 4. Periodic UDP presence beacon (Every 1.5s so riders appear instantly on Wi-Fi/Hotspot)
+        heartbeatJob?.cancel()
+        heartbeatJob = meshScope.launch {
+            while (true) {
+                delay(1500L)
+                udpDriver.sendHeartbeat()
+            }
+        }
+
+        // 5. Periodic telemetry broadcasting for distance calculation
         telemetryBroadcastJob?.cancel()
         telemetryBroadcastJob = meshScope.launch {
             while (true) {
@@ -80,6 +119,8 @@ class MeshNetworkRepositoryImpl @Inject constructor(
     override suspend fun stopMeshSession(): Result<Unit> = runCatching {
         audioBridgeJob?.cancel()
         audioBridgeJob = null
+        heartbeatJob?.cancel()
+        heartbeatJob = null
         telemetryBroadcastJob?.cancel()
         telemetryBroadcastJob = null
         nearbyDriver.stop().getOrThrow()

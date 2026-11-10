@@ -2,6 +2,7 @@ package com.landxcape.synkromesh.data.datasource.audio
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -23,8 +24,12 @@ class AudioPlaybackDriver @Inject constructor(
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var audioTrack: AudioTrack? = null
     private var audioFocusRequest: AudioFocusRequest? = null
+
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
+    private val _isSpeakerphoneOn = MutableStateFlow(true)
+    val isSpeakerphoneOn: StateFlow<Boolean> = _isSpeakerphoneOn.asStateFlow()
 
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
@@ -42,6 +47,30 @@ class AudioPlaybackDriver @Inject constructor(
             AudioManager.AUDIOFOCUS_LOSS -> {
                 audioTrack?.setVolume(0.0f)
             }
+        }
+    }
+
+    fun setSpeakerphone(enabled: Boolean) {
+        _isSpeakerphoneOn.value = enabled
+        applySpeakerphoneRouting(enabled)
+    }
+
+    private fun applySpeakerphoneRouting(enabled: Boolean) {
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (enabled) {
+                val devices = audioManager.availableCommunicationDevices
+                val speaker = devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                if (speaker != null) {
+                    audioManager.setCommunicationDevice(speaker)
+                }
+            } else {
+                audioManager.clearCommunicationDevice()
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.isSpeakerphoneOn = enabled
         }
     }
 
@@ -65,6 +94,9 @@ class AudioPlaybackDriver @Inject constructor(
             .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
             .build()
+
+        // Apply speakerphone routing
+        applySpeakerphoneRouting(_isSpeakerphoneOn.value)
 
         // Request Audio Focus with ducking permission for motorcycle navigation audio
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -98,28 +130,35 @@ class AudioPlaybackDriver @Inject constructor(
     }
 
     fun writePcm(samples: ShortArray): Int {
-        val track = audioTrack ?: return -1
+        val track = audioTrack ?: return 0
+        if (!_isPlaying.value) return 0
         return track.write(samples, 0, samples.size, AudioTrack.WRITE_NON_BLOCKING)
     }
 
     fun stopPlayback(): Result<Unit> = runCatching {
         _isPlaying.value = false
+        audioTrack?.let { track ->
+            if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                track.stop()
+            }
+            track.release()
+        }
+        audioTrack = null
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            audioManager.clearCommunicationDevice()
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.isSpeakerphoneOn = false
+        }
+        audioManager.mode = AudioManager.MODE_NORMAL
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
-            audioFocusRequest = null
         } else {
             @Suppress("DEPRECATION")
             audioManager.abandonAudioFocus(audioFocusChangeListener)
         }
-
-        audioTrack?.run {
-            if (playState == AudioTrack.PLAYSTATE_PLAYING) {
-                stop()
-            }
-            flush()
-            release()
-        }
-        audioTrack = null
+        audioFocusRequest = null
     }
 }

@@ -12,7 +12,9 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.landxcape.synkromesh.domain.model.IntercomMode
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,12 +24,26 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 class PreferencesDataSource @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+    private val keyDeviceId = stringPreferencesKey("device_unique_id")
     private val keyCallsign = stringPreferencesKey("rider_callsign")
     private val keyDefaultMode = stringPreferencesKey("default_intercom_mode")
     private val keyRideChannel = intPreferencesKey("ride_channel")
     private val keyVadThreshold = floatPreferencesKey("vad_threshold")
     private val keyOpusBitrate = intPreferencesKey("opus_bitrate_kbps")
     private val keyAutoConnect = booleanPreferencesKey("auto_connect_mesh")
+    private val keyLoudspeaker = booleanPreferencesKey("loudspeaker_enabled")
+
+    val deviceIdFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[keyDeviceId] ?: run {
+            val generated = UUID.randomUUID().toString().take(8)
+            context.dataStore.edit { it[keyDeviceId] = generated }
+            generated
+        }
+    }
+
+    suspend fun getDeviceId(): String {
+        return deviceIdFlow.first()
+    }
 
     val callsignFlow: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[keyCallsign] ?: "Rider 1"
@@ -52,6 +68,10 @@ class PreferencesDataSource @Inject constructor(
 
     val autoConnectFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[keyAutoConnect] ?: true
+    }
+
+    val loudspeakerFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[keyLoudspeaker] ?: true
     }
 
     suspend fun saveCallsign(callsign: String): Result<Unit> = runCatching {
@@ -87,6 +107,12 @@ class PreferencesDataSource @Inject constructor(
     suspend fun saveAutoConnect(autoConnect: Boolean): Result<Unit> = runCatching {
         context.dataStore.edit { prefs ->
             prefs[keyAutoConnect] = autoConnect
+        }
+    }
+
+    suspend fun saveLoudspeaker(enabled: Boolean): Result<Unit> = runCatching {
+        context.dataStore.edit { prefs ->
+            prefs[keyLoudspeaker] = enabled
         }
     }
 }

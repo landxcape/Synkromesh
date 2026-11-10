@@ -81,7 +81,8 @@ class IntercomViewModel @Inject constructor(
         meshNetworkRepository.observeMeshState(),
         observePeersUseCase(),
         audioEngineRepository.observeIsLoopbackActive(),
-        observeAudioLevelUseCase()
+        observeAudioLevelUseCase(),
+        audioEngineRepository.observeIsSpeakerphoneOn()
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         BaseAudioMeshState(
@@ -93,7 +94,8 @@ class IntercomViewModel @Inject constructor(
             meshState = args[5] as MeshState,
             peers = args[6] as List<MeshPeer>,
             isLoopbackActive = args[7] as Boolean,
-            micAudioLevel = (args[8] as AudioLevel).normalizedLevel
+            micAudioLevel = (args[8] as AudioLevel).normalizedLevel,
+            isSpeakerphoneOn = args[9] as Boolean
         )
     }
 
@@ -137,7 +139,7 @@ class IntercomViewModel @Inject constructor(
         val mappedRiders = audioMesh.peers.map { peer ->
             val relLabel = peer.relativeBearingDegrees?.let {
                 LocationTelemetryDataSource.getRelativePositionLabel(it)
-            } ?: if (peer.latitude != null) "GPS Locked" else "RF Proximity"
+            } ?: if (peer.latitude != null) "GPS Locked" else "Direct Mesh"
 
             Rider(
                 id = peer.id,
@@ -158,6 +160,7 @@ class IntercomViewModel @Inject constructor(
             transmissionState = audioMesh.transmissionState,
             isMuted = audioMesh.isMuted,
             isLoopbackActive = audioMesh.isLoopbackActive,
+            isSpeakerphoneOn = audioMesh.isSpeakerphoneOn,
             micAudioLevel = audioMesh.micAudioLevel,
             audioRouting = audioMesh.audioRouting,
             meshState = audioMesh.meshState,
@@ -192,6 +195,7 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.ToggleSessionClicked -> onToggleSession()
                 is IntercomUiEvent.ToggleBluetoothScoClicked -> onToggleSco()
                 is IntercomUiEvent.ToggleLoopbackClicked -> onToggleLoopback()
+                is IntercomUiEvent.ToggleSpeakerphoneClicked -> onToggleSpeakerphone()
                 is IntercomUiEvent.SetCallsignDialogVisible -> _isCallsignDialogOpen.value = event.isVisible
                 is IntercomUiEvent.SaveCallsign -> onSaveCallsign(event.callsign)
                 is IntercomUiEvent.SetSettingsVisible -> _isSettingsOpen.value = event.isVisible
@@ -228,7 +232,6 @@ class IntercomViewModel @Inject constructor(
     private suspend fun onSaveChannel(channel: Int) {
         preferencesDataSource.saveRideChannel(channel)
         if (uiState.value.isSessionActive) {
-            // Restart mesh on new channel
             val callsign = preferencesDataSource.callsignFlow.first()
             meshNetworkRepository.stopMeshSession()
             meshNetworkRepository.startMeshSession(callsign, channel)
@@ -279,6 +282,12 @@ class IntercomViewModel @Inject constructor(
         }
     }
 
+    private suspend fun onToggleSpeakerphone() {
+        audioEngineRepository.toggleSpeakerphone().onFailure { err ->
+            _errorFlow.value = "Loudspeaker toggle failed: ${err.message}"
+        }
+    }
+
     private suspend fun onToggleSession() {
         val currentState = uiState.value.isSessionActive
         if (currentState) {
@@ -326,7 +335,8 @@ class IntercomViewModel @Inject constructor(
         val meshState: MeshState,
         val peers: List<MeshPeer>,
         val isLoopbackActive: Boolean,
-        val micAudioLevel: Float
+        val micAudioLevel: Float,
+        val isSpeakerphoneOn: Boolean
     )
 
     private data class UserPreferencesState(

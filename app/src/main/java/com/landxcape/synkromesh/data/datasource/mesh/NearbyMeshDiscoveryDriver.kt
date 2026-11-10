@@ -1,6 +1,7 @@
 package com.landxcape.synkromesh.data.datasource.mesh
 
 import android.content.Context
+import android.util.Log
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.AdvertisingOptions
 import com.google.android.gms.nearby.connection.ConnectionInfo
@@ -32,6 +33,7 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
 ) {
 
     companion object {
+        private const val TAG = "NearbyMeshDiscovery"
         private const val BASE_SERVICE_ID = "com.landxcape.synkromesh.intercom"
         private val STRATEGY = Strategy.P2P_CLUSTER
         private const val TELEMETRY_PREFIX = "TEL:"
@@ -49,17 +51,21 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
     val peersFlow: StateFlow<List<MeshPeer>> = _peersFlow.asStateFlow()
 
     private var localCallsign: String = "Rider"
+    private var localDeviceId: String = ""
     private var activeChannel: Int = 1
 
     private val connectionLifecycleCallback = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
-            // Auto-accept connection handshake
+            // Auto-accept connection handshake on both sides
             client.acceptConnection(endpointId, payloadCallback)
-            val callsign = info.endpointName.ifBlank { "Rider $endpointId" }
-            val peer = MeshPeer(
+                .addOnFailureListener { Log.w(TAG, "acceptConnection failed: ${it.message}") }
+
+            val rawName = info.endpointName
+            val callsign = rawName.substringBefore("|").ifBlank { "Rider $endpointId" }
+            val peer = _peersMap[endpointId]?.copy(callsign = callsign) ?: MeshPeer(
                 id = endpointId,
                 callsign = callsign,
-                estimatedDistanceMeters = LocationTelemetryDataSource.estimateDistanceRssiMeters(-60)
+                estimatedDistanceMeters = LocationTelemetryDataSource.estimateDistanceRssiMeters(-58)
             )
             _peersMap[endpointId] = peer
             updatePeersList()
@@ -71,7 +77,8 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
                 updatePeersList()
                 broadcastCurrentLocationToEndpoint(endpointId)
             } else {
-                _peersMap.remove(endpointId)
+                Log.w(TAG, "Connection to $endpointId failed with status: ${resolution.status.statusCode}")
+                // Keep discovered peer visible even if initial handshake retries
                 updatePeersList()
             }
         }
@@ -87,8 +94,25 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
 
     private val endpointDiscoveryCallback = object : EndpointDiscoveryCallback() {
         override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
-            // Connect to discovered rider
-            client.requestConnection(localCallsign, endpointId, connectionLifecycleCallback)
+            val rawName = info.endpointName
+            val callsign = rawName.substringBefore("|").ifBlank { "Rider $endpointId" }
+
+            // INSTANT VISIBILITY: Show the discovered rider on Radar immediately!
+            val peer = _peersMap[endpointId] ?: MeshPeer(
+                id = endpointId,
+                callsign = callsign,
+                estimatedDistanceMeters = LocationTelemetryDataSource.estimateDistanceRssiMeters(-60)
+            )
+            _peersMap[endpointId] = peer
+            updatePeersList()
+
+            // Request connection
+            val myTag = if (localDeviceId.isNotBlank()) "$localCallsign|$localDeviceId" else localCallsign
+            client.requestConnection(myTag, endpointId, connectionLifecycleCallback)
+                .addOnFailureListener { err ->
+                    // May already be connected or initiated simultaneously
+                    Log.d(TAG, "requestConnection note for $endpointId: ${err.message}")
+                }
         }
 
         override fun onEndpointLost(endpointId: String) {
@@ -112,7 +136,6 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
     }
 
     private fun handleTelemetryPayload(endpointId: String, data: String) {
-        // Format: lat,lon,speed,bearing
         val parts = data.split(",")
         if (parts.size >= 4) {
             val peerLat = parts[0].toDoubleOrNull() ?: return
@@ -150,12 +173,18 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
         }
     }
 
-    fun startDiscoveryAndAdvertising(callsign: String, channel: Int = 1): Result<Unit> = runCatching {
+    fun startDiscoveryAndAdvertising(
+        callsign: String,
+        channel: Int = 1,
+        deviceId: String = ""
+    ): Result<Unit> = runCatching {
         localCallsign = callsign
         activeChannel = channel
+        localDeviceId = deviceId
         _meshState.value = MeshState.SEARCHING
 
         val serviceId = "${BASE_SERVICE_ID}.ch$channel"
+        val advertisedName = if (deviceId.isNotBlank()) "$callsign|$deviceId" else callsign
 
         val advertisingOptions = AdvertisingOptions.Builder()
             .setStrategy(STRATEGY)
@@ -165,8 +194,12 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
             .setStrategy(STRATEGY)
             .build()
 
-        client.startAdvertising(callsign, serviceId, connectionLifecycleCallback, advertisingOptions)
+        client.startAdvertising(advertisedName, serviceId, connectionLifecycleCallback, advertisingOptions)
+            .addOnFailureListener { Log.w(TAG, "startAdvertising failed: ${it.message}") }
+
         client.startDiscovery(serviceId, endpointDiscoveryCallback, discoveryOptions)
+            .addOnFailureListener { Log.w(TAG, "startDiscovery failed: ${it.message}") }
+
         locationDataSource.startLocationUpdates()
     }
 
