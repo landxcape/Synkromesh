@@ -3,6 +3,11 @@ package com.landxcape.synkromesh.presentation.intercom
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,8 +24,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.QrCode2
@@ -64,11 +67,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
-import com.landxcape.synkromesh.presentation.intercom.components.DeviceSettingsPage
-import com.landxcape.synkromesh.presentation.intercom.components.FloatingBottomDock
-import com.landxcape.synkromesh.presentation.intercom.components.IntercomCockpitPage
-import com.landxcape.synkromesh.presentation.intercom.components.RadarFormationPage
+import com.landxcape.synkromesh.presentation.intercom.components.LiveCockpitPage
 import com.landxcape.synkromesh.presentation.intercom.components.RideQrDialog
+import com.landxcape.synkromesh.presentation.intercom.components.RideStagingPage
 import com.landxcape.synkromesh.presentation.theme.AccentCyan
 import com.landxcape.synkromesh.presentation.theme.DarkBackground
 import com.landxcape.synkromesh.presentation.theme.DarkSurface
@@ -149,7 +150,6 @@ fun IntercomScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
     val coroutineScope = rememberCoroutineScope()
     val preflightSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -170,9 +170,8 @@ fun IntercomScreen(
                     val data = RideQrData.fromUriString(rawValue)
                     if (data != null) {
                         onEvent(IntercomUiEvent.SaveRideChannel(data.channel))
-                        if (!uiState.isSessionActive) {
-                            onEvent(IntercomUiEvent.ToggleSessionClicked)
-                        }
+                        onEvent(IntercomUiEvent.SelectGroupingMode(GroupingMode.JOIN))
+                        onEvent(IntercomUiEvent.EngageIntercom)
                         coroutineScope.launch {
                             snackbarHostState.showSnackbar("Joined Channel ${data.channel} (Host: ${data.callsign})")
                         }
@@ -191,21 +190,6 @@ fun IntercomScreen(
             }
         }
         Unit
-    }
-
-    // Bridge legacy sheet triggers to smooth page scroll
-    LaunchedEffect(uiState.isSettingsOpen) {
-        if (uiState.isSettingsOpen) {
-            pagerState.animateScrollToPage(2)
-            onEvent(IntercomUiEvent.SetSettingsVisible(false))
-        }
-    }
-
-    LaunchedEffect(uiState.isConnectionSetupOpen) {
-        if (uiState.isConnectionSetupOpen) {
-            pagerState.animateScrollToPage(1)
-            onEvent(IntercomUiEvent.SetConnectionSetupVisible(false))
-        }
     }
 
     // Callsign Dialog
@@ -264,47 +248,29 @@ fun IntercomScreen(
             .statusBarsPadding()
             .displayCutoutPadding(),
         containerColor = DarkBackground,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
-            FloatingBottomDock(
-                currentPage = pagerState.currentPage,
-                onSelectPage = { pageIndex ->
-                    coroutineScope.launch {
-                        pagerState.animateScrollToPage(pageIndex)
-                    }
-                },
-                modifier = Modifier.navigationBarsPadding()
-            )
-        }
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize()
-            ) { page ->
-                when (page) {
-                    0 -> IntercomCockpitPage(
+            AnimatedContent(
+                targetState = uiState.cockpitPhase,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300))
+                },
+                label = "cockpitPhaseTransition"
+            ) { phase ->
+                when (phase) {
+                    CockpitPhase.STAGING -> RideStagingPage(
                         uiState = uiState,
                         onEvent = onEvent,
-                        onOpenChannelPicker = { isChannelPickerOpen = true },
-                        onShowQr = { isQrDialogOpen = true },
                         onScanQr = launchQrScanner
                     )
-                    1 -> RadarFormationPage(
-                        riders = uiState.riders,
-                        meshState = uiState.meshState,
-                        mutedPeerIds = uiState.mutedPeerIds,
-                        onToggleMutePeer = { onEvent(IntercomUiEvent.TogglePeerMute(it)) }
-                    )
-                    2 -> DeviceSettingsPage(
+                    CockpitPhase.COCKPIT -> LiveCockpitPage(
                         uiState = uiState,
-                        onEvent = onEvent,
-                        onRequestBatteryExemption = onRequestBatteryExemption,
-                        onShowQr = { isQrDialogOpen = true }
+                        onEvent = onEvent
                     )
                 }
             }
