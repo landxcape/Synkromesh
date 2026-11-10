@@ -73,6 +73,8 @@ class MeshNetworkRepositoryImpl @Inject constructor(
     )
 
     override fun observeIsHotspotActive(): Flow<Boolean> = hotspotDriver.isHotspotActive
+    override fun observeIsHotspotStarting(): Flow<Boolean> = hotspotDriver.isHotspotStarting
+    override fun observeHotspotError(): Flow<String?> = hotspotDriver.hotspotError
     override fun observeHotspotSsid(): Flow<String?> = hotspotDriver.hotspotSsid
     override fun observeHotspotPassword(): Flow<String?> = hotspotDriver.hotspotPassword
 

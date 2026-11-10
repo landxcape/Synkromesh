@@ -11,6 +11,8 @@ interface MeshNetworkRepository {
     fun observePeers(): Flow<List<MeshPeer>>
     fun observeIncomingAudioPackets(): Flow<AudioPacket>
     fun observeIsHotspotActive(): Flow<Boolean>
+    fun observeIsHotspotStarting(): Flow<Boolean>
+    fun observeHotspotError(): Flow<String?>
     fun observeHotspotSsid(): Flow<String?>
     fun observeHotspotPassword(): Flow<String?>
 

@@ -43,11 +43,15 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.WifiTethering
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import com.landxcape.synkromesh.domain.model.HotspotClientState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -211,13 +215,17 @@ fun RideStagingPage(
                         hotspotPassword = uiState.hotspotPassword,
                         packToken = uiState.packToken,
                         isHotspotActive = uiState.isHotspotActive,
+                        isHotspotStarting = uiState.isHotspotStarting,
                         riderCount = uiState.riders.size,
                         onToggleHotspot = { onEvent(IntercomUiEvent.ToggleHotspotClicked) }
                     )
                     3 -> JoinPackContent(
                         rideChannel = uiState.rideChannel,
                         meshState = uiState.meshState,
-                        onScanQr = onScanQr
+                        clientState = uiState.hotspotClientState,
+                        connectedSsid = uiState.connectedHotspotSsid,
+                        onScanQr = onScanQr,
+                        onDisconnect = { onEvent(IntercomUiEvent.DisconnectHotspotClicked) }
                     )
                 }
             }
@@ -250,6 +258,7 @@ fun RideStagingPage(
                         else -> "ENGAGE MESH"
                     },
                     isOnline = pagerState.currentPage == 2 && uiState.isHotspotActive,
+                    isLoading = uiState.isSessionEngaging,
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onEvent(IntercomUiEvent.EngageIntercom)
@@ -807,12 +816,14 @@ private fun LeadPackContent(
     hotspotPassword: String?,
     packToken: String?,
     isHotspotActive: Boolean,
+    isHotspotStarting: Boolean,
     riderCount: Int,
     onToggleHotspot: () -> Unit
 ) {
     val scrollState = rememberScrollState()
-    val qrData = remember(channel, callsign, hotspotSsid, hotspotPassword, packToken) {
-        RideQrData(
+    val qrData = remember(channel, callsign, hotspotSsid, hotspotPassword, packToken, isHotspotActive) {
+        if (!isHotspotActive) null
+        else RideQrData(
             channel = channel,
             callsign = callsign,
             ssid = hotspotSsid,
@@ -822,7 +833,7 @@ private fun LeadPackContent(
     }
 
     val qrBitmap = remember(qrData) {
-        RideQrManager.generateQrBitmap(qrData, sizePx = 720)
+        qrData?.let { RideQrManager.generateQrBitmap(it, sizePx = 720) }
     }
 
     Column(
@@ -845,19 +856,37 @@ private fun LeadPackContent(
                             modifier = Modifier
                                 .size(6.dp)
                                 .clip(CircleShape)
-                                .background(if (isHotspotActive) AccentGreen else AccentAmber)
+                                .background(
+                                    when {
+                                        isHotspotStarting -> AccentAmber
+                                        isHotspotActive -> AccentGreen
+                                        else -> TextMuted
+                                    }
+                                )
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (isHotspotActive) "HOTSPOT ACTIVE" else "HOTSPOT STANDBY",
+                            text = when {
+                                isHotspotStarting -> "HOTSPOT INITIALIZING..."
+                                isHotspotActive -> "HOTSPOT BROADCASTING"
+                                else -> "HOTSPOT OFF"
+                            },
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (isHotspotActive) AccentGreen else AccentAmber
+                            color = when {
+                                isHotspotStarting -> AccentAmber
+                                isHotspotActive -> AccentGreen
+                                else -> TextMuted
+                            }
                         )
                     }
                     Text(
-                        text = hotspotSsid ?: "Synkromesh-Lead",
+                        text = when {
+                            isHotspotStarting -> "Configuring SoftAP..."
+                            isHotspotActive -> (hotspotSsid ?: "Broadcasting...")
+                            else -> "Standby (Tap to Start)"
+                        },
                         fontFamily = FontFamily.Monospace,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
@@ -866,11 +895,12 @@ private fun LeadPackContent(
                 }
 
                 Switch(
-                    checked = isHotspotActive,
+                    checked = isHotspotActive || isHotspotStarting,
+                    enabled = !isHotspotStarting,
                     onCheckedChange = { onToggleHotspot() },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = TextPrimary,
-                        checkedTrackColor = AccentGreen,
+                        checkedTrackColor = if (isHotspotStarting) AccentAmber else AccentGreen,
                         uncheckedThumbColor = TextMuted,
                         uncheckedTrackColor = DarkSurfaceElevated
                     )
@@ -879,35 +909,152 @@ private fun LeadPackContent(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Precision QR Frame - Full Width Adaptive Aspect Ratio
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(12.dp)),
-                color = Color(0xFFF1F5F9),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, BorderSubtle)
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+            if (isHotspotStarting) {
+                // Initializing / Loading Card
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp)),
+                    color = DarkSurfaceElevated,
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, AccentAmber)
                 ) {
-                    if (qrBitmap != null) {
-                        Image(
-                            bitmap = qrBitmap.asImageBitmap(),
-                            contentDescription = "Pairing Matrix",
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(44.dp),
+                            color = AccentAmber,
+                            strokeWidth = 3.dp
+                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "INITIALIZING LEAD HOTSPOT...",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.5.sp,
+                                color = TextPrimary
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Allocating local Wi-Fi SoftAP and generating pack pairing matrix. Please wait...",
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            } else if (!isHotspotActive) {
+                // Inactive Standby Card
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { onToggleHotspot() },
+                    color = DarkSurfaceElevated,
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, BorderFocus)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .padding(10.dp)
-                        )
-                    } else {
-                        Text(
-                            text = "INITIALIZING MATRIX",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            color = Color.Black
-                        )
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(DarkSurface),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.WifiTethering,
+                                contentDescription = null,
+                                tint = AccentAmber,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "START LEAD HOTSPOT",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.5.sp,
+                                color = TextPrimary
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Broadcast private Wi-Fi hotspot to generate your pack's pairing matrix and invite riders.",
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+
+                        // Tactile Launch Button
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(8.dp)),
+                            color = AccentGreen,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "ACTIVATE HOTSPOT",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp,
+                                    color = Color.Black
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Precision QR Frame - Full Width Adaptive Aspect Ratio
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(12.dp)),
+                    color = Color(0xFFF1F5F9),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, BorderSubtle)
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (qrBitmap != null) {
+                            Image(
+                                bitmap = qrBitmap.asImageBitmap(),
+                                contentDescription = "Pairing Matrix",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(10.dp)
+                            )
+                        } else {
+                            Text(
+                                text = "INITIALIZING MATRIX",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = Color.Black
+                            )
+                        }
                     }
                 }
             }
@@ -945,7 +1092,10 @@ private fun LeadPackContent(
 private fun JoinPackContent(
     rideChannel: Int,
     meshState: MeshState,
-    onScanQr: () -> Unit
+    clientState: HotspotClientState,
+    connectedSsid: String?,
+    onScanQr: () -> Unit,
+    onDisconnect: () -> Unit
 ) {
     val scrollState = rememberScrollState()
 
@@ -975,62 +1125,276 @@ private fun JoinPackContent(
                 )
             }
 
-            // Big Technical Scanner Trigger
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(96.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .clickable { onScanQr() },
-                color = DarkSurfaceElevated,
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, BorderFocus)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
+            when (clientState) {
+                HotspotClientState.CONNECTING -> {
+                    // Connecting / Associating Card
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp)),
+                        color = DarkSurfaceElevated,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, AccentAmber)
+                    ) {
+                        Column(
                             modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(DarkSurface),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.QrCodeScanner,
-                                contentDescription = null,
-                                tint = TextPrimary,
-                                modifier = Modifier.size(24.dp)
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(44.dp),
+                                color = AccentAmber,
+                                strokeWidth = 3.dp
                             )
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "ASSOCIATING WITH LEAD PACK...",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 0.5.sp,
+                                    color = TextPrimary
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Connecting to ${connectedSsid ?: "Lead Hotspot"}...\nNegotiating Wi-Fi handshake and directed subnet routing.",
+                                    fontSize = 12.sp,
+                                    color = TextSecondary,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Column {
-                            Text(
-                                text = "SCAN LEAD QR",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 0.5.sp,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = "Zero-Permission Instant Scan",
-                                fontSize = 11.sp,
-                                color = TextMuted
+                    }
+                }
+                HotspotClientState.CONNECTED -> {
+                    // Connected Status Card
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp)),
+                        color = DarkSurfaceElevated,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, AccentGreen)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(DarkSurface),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.WifiTethering,
+                                    contentDescription = null,
+                                    tint = AccentGreen,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "CONNECTED TO LEAD PACK",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 0.5.sp,
+                                    color = AccentGreen
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Active Wi-Fi: ${connectedSsid ?: "Lead Hotspot"}\nPress START INTERCOM below to engage mesh audio.",
+                                    fontSize = 12.sp,
+                                    color = TextSecondary,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { onDisconnect() },
+                                    color = DarkSurface,
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, BorderSubtle)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "DISCONNECT",
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextMuted
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { onScanQr() },
+                                    color = DarkSurface,
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, BorderFocus)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "SCAN ANOTHER",
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextPrimary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                HotspotClientState.FAILED -> {
+                    // Failed Status Card
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp)),
+                        color = DarkSurfaceElevated,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, AccentAmber)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(DarkSurface),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = AccentAmber,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "CONNECTION TIMED OUT",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 0.5.sp,
+                                    color = TextPrimary
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Could not associate with ${connectedSsid ?: "Lead Hotspot"}. Verify Leader hotspot is running.",
+                                    fontSize = 12.sp,
+                                    color = TextSecondary,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { onScanQr() },
+                                color = AccentAmber,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = "RETRY SCAN",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.Black
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                HotspotClientState.IDLE -> {
+                    // Big Technical Scanner Trigger
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(96.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { onScanQr() },
+                        color = DarkSurfaceElevated,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, BorderFocus)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 20.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(DarkSurface),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.QrCodeScanner,
+                                        contentDescription = null,
+                                        tint = TextPrimary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column {
+                                    Text(
+                                        text = "SCAN LEAD QR",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = 0.5.sp,
+                                        color = TextPrimary
+                                    )
+                                    Text(
+                                        text = "Zero-Permission Instant Scan",
+                                        fontSize = 11.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                            }
+
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
-
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = null,
-                        tint = TextSecondary,
-                        modifier = Modifier.size(20.dp)
-                    )
                 }
             }
 
@@ -1060,18 +1424,28 @@ private fun JoinPackContent(
                 }
 
                 Text(
-                    text = when (meshState) {
-                        MeshState.CONNECTED -> "CONNECTED"
-                        MeshState.SEARCHING -> "SEARCHING..."
-                        MeshState.DISCONNECTED -> "STANDBY"
+                    text = when (clientState) {
+                        HotspotClientState.CONNECTING -> "ASSOCIATING..."
+                        HotspotClientState.CONNECTED -> "WI-FI LINKED"
+                        HotspotClientState.FAILED -> "LINK TIMEOUT"
+                        HotspotClientState.IDLE -> when (meshState) {
+                            MeshState.CONNECTED -> "CONNECTED"
+                            MeshState.SEARCHING -> "SEARCHING..."
+                            MeshState.DISCONNECTED -> "AWAITING SCAN"
+                        }
                     },
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = when (meshState) {
-                        MeshState.CONNECTED -> AccentGreen
-                        MeshState.SEARCHING -> AccentAmber
-                        MeshState.DISCONNECTED -> TextMuted
+                    color = when (clientState) {
+                        HotspotClientState.CONNECTING -> AccentAmber
+                        HotspotClientState.CONNECTED -> AccentGreen
+                        HotspotClientState.FAILED -> AccentAmber
+                        HotspotClientState.IDLE -> when (meshState) {
+                            MeshState.CONNECTED -> AccentGreen
+                            MeshState.SEARCHING -> AccentAmber
+                            MeshState.DISCONNECTED -> TextMuted
+                        }
                     }
                 )
             }
@@ -1083,13 +1457,14 @@ private fun PrecisionActionButton(
     text: String,
     subtext: String,
     isOnline: Boolean = false,
+    isLoading: Boolean = false,
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.97f else 1.0f,
+        targetValue = if (isPressed && !isLoading) 0.97f else 1.0f,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "btnScale"
     )
@@ -1103,6 +1478,7 @@ private fun PrecisionActionButton(
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
+                enabled = !isLoading,
                 onClick = onClick
             ),
         color = TextPrimary,
@@ -1117,7 +1493,7 @@ private fun PrecisionActionButton(
         ) {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isOnline) {
+                    if (isOnline && !isLoading) {
                         Box(
                             modifier = Modifier
                                 .size(6.dp)
@@ -1127,7 +1503,7 @@ private fun PrecisionActionButton(
                         Spacer(modifier = Modifier.width(6.dp))
                     }
                     Text(
-                        text = text,
+                        text = if (isLoading) "CONNECTING..." else text,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.sp,
@@ -1135,7 +1511,7 @@ private fun PrecisionActionButton(
                     )
                 }
                 Text(
-                    text = subtext,
+                    text = if (isLoading) "ESTABLISHING AUDIO & MESH UPLINK" else subtext,
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
@@ -1149,12 +1525,20 @@ private fun PrecisionActionButton(
                 color = DarkBackground
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = null,
-                        tint = TextPrimary,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = TextPrimary,
+                            strokeWidth = 2.5.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = null,
+                            tint = TextPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }

@@ -7,6 +7,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
+import com.landxcape.synkromesh.domain.model.HotspotClientState
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +27,9 @@ class WifiHotspotClientDriver @Inject constructor(
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
 
+    private val _clientState = MutableStateFlow(HotspotClientState.IDLE)
+    val clientState: StateFlow<HotspotClientState> = _clientState.asStateFlow()
+
     private val _connectedSsid = MutableStateFlow<String?>(null)
     val connectedSsid: StateFlow<String?> = _connectedSsid.asStateFlow()
 
@@ -38,6 +42,9 @@ class WifiHotspotClientDriver @Inject constructor(
     fun connectToHotspot(ssid: String, password: String): Result<Unit> = runCatching {
         val manager = connectivityManager ?: error("ConnectivityManager unavailable")
         disconnect()
+
+        _clientState.value = HotspotClientState.CONNECTING
+        _connectedSsid.value = ssid
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val specifier = WifiNetworkSpecifier.Builder()
@@ -63,6 +70,7 @@ class WifiHotspotClientDriver @Inject constructor(
                     _subnetBroadcastIp.value = computeSubnetBroadcast(network)
                     _isConnected.value = true
                     _connectedSsid.value = ssid
+                    _clientState.value = HotspotClientState.CONNECTED
                 }
 
                 override fun onLost(network: Network) {
@@ -72,6 +80,7 @@ class WifiHotspotClientDriver @Inject constructor(
                     _subnetBroadcastIp.value = null
                     _isConnected.value = false
                     _connectedSsid.value = null
+                    _clientState.value = HotspotClientState.IDLE
                 }
 
                 override fun onUnavailable() {
@@ -80,6 +89,7 @@ class WifiHotspotClientDriver @Inject constructor(
                     _subnetBroadcastIp.value = null
                     _isConnected.value = false
                     _connectedSsid.value = null
+                    _clientState.value = HotspotClientState.FAILED
                 }
             }
 
@@ -115,5 +125,6 @@ class WifiHotspotClientDriver @Inject constructor(
         _subnetBroadcastIp.value = null
         _isConnected.value = false
         _connectedSsid.value = null
+        _clientState.value = HotspotClientState.IDLE
     }
 }

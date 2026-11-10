@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -111,7 +112,8 @@ fun IntercomCockpitPage(
         ActiveSpeakerBanner(
             transmissionState = uiState.transmissionState,
             riders = uiState.riders,
-            isSessionActive = uiState.isSessionActive
+            isSessionActive = uiState.isSessionActive,
+            isSessionEngaging = uiState.isSessionEngaging
         )
 
         // 3. Hero PTT / Voice Target Disc
@@ -120,6 +122,7 @@ fun IntercomCockpitPage(
             transmissionState = uiState.transmissionState,
             isMuted = uiState.isMuted,
             isSessionActive = uiState.isSessionActive,
+            isSessionEngaging = uiState.isSessionEngaging,
             micAudioLevel = uiState.micAudioLevel,
             onPttChange = { pressed -> onEvent(IntercomUiEvent.PttPressed(pressed)) },
             onToggleClick = { onEvent(IntercomUiEvent.ToggleMuteClicked) }
@@ -264,7 +267,8 @@ private fun CockpitTopBar(
 private fun ActiveSpeakerBanner(
     transmissionState: TransmissionState,
     riders: List<com.landxcape.synkromesh.domain.model.Rider>,
-    isSessionActive: Boolean
+    isSessionActive: Boolean,
+    isSessionEngaging: Boolean = false
 ) {
     val activeSpeaker = riders.firstOrNull { it.isTransmitting && !it.isLocalUser }
 
@@ -283,6 +287,20 @@ private fun ActiveSpeakerBanner(
             horizontalArrangement = Arrangement.Center
         ) {
             when {
+                isSessionEngaging -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = AccentAmber,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "CONNECTING TO MESH & AUDIO...",
+                        fontWeight = FontWeight.Bold,
+                        color = AccentAmber,
+                        fontSize = 12.sp
+                    )
+                }
                 !isSessionActive -> {
                     Text(
                         text = "Mesh Standby • Tap power button to connect",
@@ -339,6 +357,7 @@ private fun HeroVoiceDisc(
     transmissionState: TransmissionState,
     isMuted: Boolean,
     isSessionActive: Boolean,
+    isSessionEngaging: Boolean = false,
     micAudioLevel: Float,
     onPttChange: (Boolean) -> Unit,
     onToggleClick: () -> Unit
@@ -468,6 +487,7 @@ private fun HeroVoiceDisc(
 
                 Text(
                     text = when {
+                        isSessionEngaging -> "CONNECTING..."
                         !isSessionActive -> "SESSION STANDBY"
                         isTransmitting -> "TRANSMITTING"
                         isMuted -> "MUTED"

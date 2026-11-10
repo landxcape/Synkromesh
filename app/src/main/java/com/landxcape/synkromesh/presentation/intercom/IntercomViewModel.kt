@@ -11,6 +11,7 @@ import com.landxcape.synkromesh.data.datasource.mesh.LocationTelemetryDataSource
 import com.landxcape.synkromesh.data.datasource.mesh.WifiHotspotClientDriver
 import com.landxcape.synkromesh.domain.model.AudioLevel
 import com.landxcape.synkromesh.domain.model.AudioRoutingState
+import com.landxcape.synkromesh.domain.model.HotspotClientState
 import com.landxcape.synkromesh.domain.model.IntercomMode
 import com.landxcape.synkromesh.domain.model.MeshPeer
 import com.landxcape.synkromesh.domain.model.MeshState
@@ -73,11 +74,19 @@ class IntercomViewModel @Inject constructor(
     private val _isSettingsOpen = MutableStateFlow(false)
     private val _isConnectionSetupOpen = MutableStateFlow(false)
     private val _isPermissionSheetVisible = MutableStateFlow(false)
+    private val _isSessionEngaging = MutableStateFlow(false)
     private val _mutedPeerIds = MutableStateFlow<Set<String>>(emptySet())
     private val _packToken = MutableStateFlow<String?>(null)
 
     init {
         refreshPreflightAndDevices()
+        viewModelScope.launch {
+            meshNetworkRepository.observeHotspotError().collect { err ->
+                if (err != null) {
+                    _errorFlow.value = err
+                }
+            }
+        }
     }
 
     private val baseAudioMeshFlow = combine(
@@ -118,10 +127,21 @@ class IntercomViewModel @Inject constructor(
 
     private val hotspotFlow = combine(
         meshNetworkRepository.observeIsHotspotActive(),
+        meshNetworkRepository.observeIsHotspotStarting(),
         meshNetworkRepository.observeHotspotSsid(),
-        meshNetworkRepository.observeHotspotPassword()
-    ) { active, ssid, pass ->
-        Triple(active, ssid, pass)
+        meshNetworkRepository.observeHotspotPassword(),
+        wifiHotspotClientDriver.clientState,
+        wifiHotspotClientDriver.connectedSsid
+    ) { args: Array<Any?> ->
+        @Suppress("UNCHECKED_CAST")
+        HotspotCombinedState(
+            isActive = args[0] as Boolean,
+            isStarting = args[1] as Boolean,
+            ssid = args[2] as String?,
+            password = args[3] as String?,
+            clientState = args[4] as HotspotClientState,
+            connectedSsid = args[5] as String?
+        )
     }
 
     private val dialogsAndPreflightFlow = combine(
@@ -136,7 +156,8 @@ class IntercomViewModel @Inject constructor(
         _cockpitPhase,
         _groupingMode,
         _isRadarOverlayActive,
-        _packToken
+        _packToken,
+        _isSessionEngaging
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         DialogsAndPreflightState(
@@ -151,7 +172,8 @@ class IntercomViewModel @Inject constructor(
             cockpitPhase = args[8] as CockpitPhase,
             groupingMode = args[9] as GroupingMode,
             isRadarOverlayActive = args[10] as Boolean,
-            packToken = args[11] as String?
+            packToken = args[11] as String?,
+            isSessionEngaging = args[12] as Boolean
         )
     }
 
@@ -187,14 +209,18 @@ class IntercomViewModel @Inject constructor(
             groupingMode = dialogs.groupingMode,
             isRadarOverlayActive = dialogs.isRadarOverlayActive,
             isSessionActive = audioMesh.isSessionActive,
+            isSessionEngaging = dialogs.isSessionEngaging,
             selectedMode = audioMesh.selectedMode,
             transmissionState = audioMesh.transmissionState,
             isMuted = audioMesh.isMuted,
             isLoopbackActive = audioMesh.isLoopbackActive,
             isSpeakerphoneOn = audioMesh.isSpeakerphoneOn,
-            isHotspotActive = hotspot.first,
-            hotspotSsid = hotspot.second,
-            hotspotPassword = hotspot.third,
+            isHotspotActive = hotspot.isActive,
+            isHotspotStarting = hotspot.isStarting,
+            hotspotSsid = hotspot.ssid,
+            hotspotPassword = hotspot.password,
+            hotspotClientState = hotspot.clientState,
+            connectedHotspotSsid = hotspot.connectedSsid,
             micAudioLevel = audioMesh.micAudioLevel,
             audioRouting = audioMesh.audioRouting,
             meshState = audioMesh.meshState,
@@ -246,6 +272,7 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.SelectGroupingMode -> onSelectGroupingMode(event.mode)
                 is IntercomUiEvent.SetPackToken -> onSetPackToken(event.token)
                 is IntercomUiEvent.ConnectLeadHotspot -> onConnectLeadHotspot(event.ssid, event.password)
+                is IntercomUiEvent.DisconnectHotspotClicked -> onDisconnectHotspot()
                 is IntercomUiEvent.EngageIntercom -> onEngageIntercom()
                 is IntercomUiEvent.ReturnToStaging -> onReturnToStaging()
                 is IntercomUiEvent.ToggleRadarOverlay -> _isRadarOverlayActive.value = !_isRadarOverlayActive.value
@@ -339,12 +366,6 @@ class IntercomViewModel @Inject constructor(
     private suspend fun onSelectGroupingMode(mode: GroupingMode) {
         _groupingMode.value = mode
         if (mode == GroupingMode.LEAD) {
-            val isHotspotActive = meshNetworkRepository.observeIsHotspotActive().first()
-            if (!isHotspotActive) {
-                meshNetworkRepository.toggleLocalHotspot().onFailure { err ->
-                    _errorFlow.value = "Failed to start Lead Hotspot: ${err.message}"
-                }
-            }
             if (_packToken.value == null) {
                 _packToken.value = java.util.UUID.randomUUID().toString().take(12)
             }
@@ -363,43 +384,56 @@ class IntercomViewModel @Inject constructor(
         meshNetworkRepository.connectToLeadHotspot(ssid, password.orEmpty())
     }
 
+    private fun onDisconnectHotspot() {
+        wifiHotspotClientDriver.disconnect()
+    }
+
     private suspend fun onEngageIntercom() {
+        val status = preflightManager.statusFlow.value
+        if (!status.areCriticalPermissionsGranted || !status.areRadiosEnabled) {
+            _isPermissionSheetVisible.value = true
+            return
+        }
+
+        _isSessionEngaging.value = true
+
         val isSessionActive = intercomRepository.observeIsSessionActive().first()
         if (!isSessionActive) {
-            preflightManager.refresh()
-            val status = preflightManager.statusFlow.value
-            if (!status.areCriticalPermissionsGranted || !status.areRadiosEnabled) {
-                _isPermissionSheetVisible.value = true
-                return
-            }
-
             if (_groupingMode.value == GroupingMode.JOIN) {
                 val connected = withTimeoutOrNull(15_000L) {
                     wifiHotspotClientDriver.isConnected.first { it }
                 }
                 if (connected == null) {
-                    _cockpitPhase.value = CockpitPhase.STAGING
-                    _errorFlow.value = "Could not reach Lead hotspot. Connect manually in Wi-Fi Settings, then try again."
+                    _isSessionEngaging.value = false
+                    _errorFlow.value = "Could not reach Lead hotspot. Ensure Leader hotspot is active, then try again."
                     return
                 }
             }
 
+            // Transition to Cockpit HUD once network connectivity is established
             _cockpitPhase.value = CockpitPhase.COCKPIT
+            audioToneFeedbackGenerator.playFeedbackTone(FeedbackTone.MIC_OPEN)
+
             val callsign = preferencesDataSource.callsignFlow.first()
             val channel = preferencesDataSource.rideChannelFlow.first()
-            startIntercomSessionUseCase().onSuccess {
+            val startResult = startIntercomSessionUseCase()
+            if (startResult.isSuccess) {
                 audioEngineRepository.startAudioEngine()
                 meshNetworkRepository.startMeshSession(callsign, channel, _groupingMode.value.toTransportMode())
-            }.onFailure { err ->
-                _errorFlow.value = "Failed to engage intercom: ${err.message}"
+            } else {
+                val err = startResult.exceptionOrNull()
+                _errorFlow.value = "Failed to engage intercom: ${err?.message}"
             }
+            _isSessionEngaging.value = false
         } else {
             _cockpitPhase.value = CockpitPhase.COCKPIT
+            _isSessionEngaging.value = false
+            audioToneFeedbackGenerator.playFeedbackTone(FeedbackTone.MIC_OPEN)
         }
-        audioToneFeedbackGenerator.playFeedbackTone(FeedbackTone.MIC_OPEN)
     }
 
     private suspend fun onReturnToStaging() {
+        _isSessionEngaging.value = false
         _cockpitPhase.value = CockpitPhase.STAGING
         _isRadarOverlayActive.value = false
         meshNetworkRepository.stopMeshSession()
@@ -481,7 +515,17 @@ class IntercomViewModel @Inject constructor(
         val cockpitPhase: CockpitPhase,
         val groupingMode: GroupingMode,
         val isRadarOverlayActive: Boolean,
-        val packToken: String?
+        val packToken: String?,
+        val isSessionEngaging: Boolean
+    )
+
+    private data class HotspotCombinedState(
+        val isActive: Boolean,
+        val isStarting: Boolean,
+        val ssid: String?,
+        val password: String?,
+        val clientState: HotspotClientState,
+        val connectedSsid: String?
     )
 }
 

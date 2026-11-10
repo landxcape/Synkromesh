@@ -2,6 +2,7 @@ package com.landxcape.synkromesh.presentation.intercom
 
 import com.landxcape.synkromesh.data.datasource.bluetooth.PairedHeadset
 import com.landxcape.synkromesh.domain.model.AudioRoutingState
+import com.landxcape.synkromesh.domain.model.HotspotClientState
 import com.landxcape.synkromesh.domain.model.IntercomMode
 import com.landxcape.synkromesh.domain.model.MeshPeer
 import com.landxcape.synkromesh.domain.model.MeshState
@@ -25,14 +26,18 @@ data class IntercomUiState(
     val groupingMode: GroupingMode = GroupingMode.OPEN_MESH,
     val isRadarOverlayActive: Boolean = false,
     val isSessionActive: Boolean = false,
+    val isSessionEngaging: Boolean = false,
     val selectedMode: IntercomMode = IntercomMode.PUSH_TO_TALK,
     val transmissionState: TransmissionState = TransmissionState.IDLE,
     val isMuted: Boolean = false,
     val isLoopbackActive: Boolean = false,
     val isSpeakerphoneOn: Boolean = true,
     val isHotspotActive: Boolean = false,
+    val isHotspotStarting: Boolean = false,
     val hotspotSsid: String? = null,
     val hotspotPassword: String? = null,
+    val hotspotClientState: HotspotClientState = HotspotClientState.IDLE,
+    val connectedHotspotSsid: String? = null,
     val micAudioLevel: Float = 0.0f,
     val audioRouting: AudioRoutingState = AudioRoutingState(),
     val meshState: MeshState = MeshState.DISCONNECTED,
@@ -63,6 +68,7 @@ sealed interface IntercomUiEvent {
     data object ToggleLoopbackClicked : IntercomUiEvent
     data object ToggleSpeakerphoneClicked : IntercomUiEvent
     data object ToggleHotspotClicked : IntercomUiEvent
+    data object DisconnectHotspotClicked : IntercomUiEvent
     data class SetCallsignDialogVisible(val isVisible: Boolean) : IntercomUiEvent
     data class SaveCallsign(val callsign: String) : IntercomUiEvent
     data class SetSettingsVisible(val isVisible: Boolean) : IntercomUiEvent

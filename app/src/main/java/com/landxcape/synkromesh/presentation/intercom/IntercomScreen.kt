@@ -290,7 +290,7 @@ fun IntercomScreen(
             AnimatedContent(
                 targetState = uiState.cockpitPhase,
                 transitionSpec = {
-                    fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300))
+                    fadeIn(animationSpec = tween(150)) togetherWith fadeOut(animationSpec = tween(150))
                 },
                 label = "cockpitPhaseTransition"
             ) { phase ->
