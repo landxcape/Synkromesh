@@ -130,6 +130,10 @@ dependencies {
     // Offline P2P Mesh
     implementation(libs.google.play.services.nearby)
 
+    // QR Code Generation & Scanning (Zero Camera Permission via Play Services)
+    implementation(libs.google.play.services.code.scanner)
+    implementation(libs.zxing.core)
+
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

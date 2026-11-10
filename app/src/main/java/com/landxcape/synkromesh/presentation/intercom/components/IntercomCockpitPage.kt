@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -82,6 +84,8 @@ fun IntercomCockpitPage(
     uiState: IntercomUiState,
     onEvent: (IntercomUiEvent) -> Unit,
     onOpenChannelPicker: () -> Unit,
+    onShowQr: () -> Unit,
+    onScanQr: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -98,6 +102,8 @@ fun IntercomCockpitPage(
             riderCount = uiState.riders.size,
             isSessionActive = uiState.isSessionActive,
             onOpenChannelPicker = onOpenChannelPicker,
+            onShowQr = onShowQr,
+            onScanQr = onScanQr,
             onToggleSession = { onEvent(IntercomUiEvent.ToggleSessionClicked) }
         )
 
@@ -146,6 +152,8 @@ private fun CockpitTopBar(
     riderCount: Int,
     isSessionActive: Boolean,
     onOpenChannelPicker: () -> Unit,
+    onShowQr: () -> Unit,
+    onScanQr: () -> Unit,
     onToggleSession: () -> Unit
 ) {
     Row(
@@ -183,59 +191,51 @@ private fun CockpitTopBar(
             }
         }
 
-        // Mesh State Pill & Power Toggle
+        // Action Buttons: Share QR, Scan QR & Power Toggle
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // Share QR Button
             Surface(
-                color = when (meshState) {
-                    MeshState.CONNECTED -> AccentGreen.copy(alpha = 0.15f)
-                    MeshState.SEARCHING -> AccentAmber.copy(alpha = 0.15f)
-                    MeshState.DISCONNECTED -> DarkSurface
-                },
-                border = BorderStroke(
-                    1.dp,
-                    when (meshState) {
-                        MeshState.CONNECTED -> AccentGreen
-                        MeshState.SEARCHING -> AccentAmber
-                        MeshState.DISCONNECTED -> TextMuted
-                    }
-                ),
-                shape = RoundedCornerShape(20.dp)
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .clickable { onShowQr() },
+                color = DarkSurfaceElevated,
+                border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.4f)),
+                shape = CircleShape
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(
-                                when (meshState) {
-                                    MeshState.CONNECTED -> AccentGreen
-                                    MeshState.SEARCHING -> AccentAmber
-                                    MeshState.DISCONNECTED -> TextMuted
-                                }
-                            )
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = when (meshState) {
-                            MeshState.CONNECTED -> "CONNECTED ($riderCount)"
-                            MeshState.SEARCHING -> "SCANNING"
-                            MeshState.DISCONNECTED -> "OFFLINE"
-                        },
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = when (meshState) {
-                            MeshState.CONNECTED -> AccentGreen
-                            MeshState.SEARCHING -> AccentAmber
-                            MeshState.DISCONNECTED -> TextMuted
-                        }
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.QrCode2,
+                        contentDescription = "Show Pairing QR",
+                        tint = AccentCyan,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+
+            // Scan QR Button
+            Surface(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .clickable { onScanQr() },
+                color = DarkSurfaceElevated,
+                border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.4f)),
+                shape = CircleShape
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.QrCodeScanner,
+                        contentDescription = "Scan Pairing QR",
+                        tint = AccentCyan,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(6.dp))
 
             // Quick Power / Session Toggle Button
             Surface(

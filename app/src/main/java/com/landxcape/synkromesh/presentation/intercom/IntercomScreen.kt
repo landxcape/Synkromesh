@@ -3,11 +3,7 @@ package com.landxcape.synkromesh.presentation.intercom
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,13 +18,18 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -60,10 +61,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.landxcape.synkromesh.presentation.intercom.components.DeviceSettingsPage
 import com.landxcape.synkromesh.presentation.intercom.components.FloatingBottomDock
 import com.landxcape.synkromesh.presentation.intercom.components.IntercomCockpitPage
 import com.landxcape.synkromesh.presentation.intercom.components.RadarFormationPage
+import com.landxcape.synkromesh.presentation.intercom.components.RideQrDialog
 import com.landxcape.synkromesh.presentation.theme.AccentCyan
 import com.landxcape.synkromesh.presentation.theme.DarkBackground
 import com.landxcape.synkromesh.presentation.theme.DarkSurface
@@ -72,6 +77,7 @@ import com.landxcape.synkromesh.presentation.theme.TextMuted
 import com.landxcape.synkromesh.presentation.theme.TextPrimary
 import com.landxcape.synkromesh.presentation.theme.TextSecondary
 import com.landxcape.synkromesh.service.IntercomForegroundService
+import com.landxcape.synkromesh.util.RideQrData
 import kotlinx.coroutines.launch
 
 /**
@@ -130,7 +136,7 @@ fun IntercomRoute(
 }
 
 /**
- * Pragmatic Layout: Orchestrates stateless child components with Pager and Floating Dock.
+ * Pragmatic Layout: Orchestrates stateless child components with Pager, QR scanner, and Floating Dock.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -142,11 +148,50 @@ fun IntercomScreen(
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
     val coroutineScope = rememberCoroutineScope()
     val preflightSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var isChannelPickerOpen by remember { mutableStateOf(false) }
+    var isQrDialogOpen by remember { mutableStateOf(false) }
+
+    val launchQrScanner: () -> Unit = {
+        try {
+            val options = GmsBarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .enableAutoZoom()
+                .build()
+
+            val scanner = GmsBarcodeScanning.getClient(context, options)
+            scanner.startScan()
+                .addOnSuccessListener { barcode ->
+                    val rawValue = barcode.rawValue ?: return@addOnSuccessListener
+                    val data = RideQrData.fromUriString(rawValue)
+                    if (data != null) {
+                        onEvent(IntercomUiEvent.SaveRideChannel(data.channel))
+                        if (!uiState.isSessionActive) {
+                            onEvent(IntercomUiEvent.ToggleSessionClicked)
+                        }
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar("Joined Channel ${data.channel} (Host: ${data.callsign})")
+                        }
+                    } else {
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar("Invalid Synkromesh QR Code")
+                        }
+                    }
+                }
+                .addOnFailureListener {
+                    // Scanner dismissed or canceled
+                }
+        } catch (e: Exception) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("QR Scanner unavailable: ${e.message}")
+            }
+        }
+        Unit
+    }
 
     // Bridge legacy sheet triggers to smooth page scroll
     LaunchedEffect(uiState.isSettingsOpen) {
@@ -172,6 +217,17 @@ fun IntercomScreen(
         )
     }
 
+    // Pairing QR Dialog
+    if (isQrDialogOpen) {
+        RideQrDialog(
+            channel = uiState.rideChannel,
+            callsign = uiState.callsign,
+            hotspotSsid = uiState.hotspotSsid,
+            hotspotPassword = uiState.hotspotPassword,
+            onDismiss = { isQrDialogOpen = false }
+        )
+    }
+
     // Permission Preflight Bottom Sheet
     if (uiState.isPermissionSheetVisible) {
         PermissionPreflightSheet(
@@ -189,6 +245,14 @@ fun IntercomScreen(
             currentChannel = uiState.rideChannel,
             onSelectChannel = { channel ->
                 onEvent(IntercomUiEvent.SaveRideChannel(channel))
+            },
+            onShowQr = {
+                isChannelPickerOpen = false
+                isQrDialogOpen = true
+            },
+            onScanQr = {
+                isChannelPickerOpen = false
+                launchQrScanner()
             },
             onDismiss = { isChannelPickerOpen = false }
         )
@@ -226,7 +290,9 @@ fun IntercomScreen(
                     0 -> IntercomCockpitPage(
                         uiState = uiState,
                         onEvent = onEvent,
-                        onOpenChannelPicker = { isChannelPickerOpen = true }
+                        onOpenChannelPicker = { isChannelPickerOpen = true },
+                        onShowQr = { isQrDialogOpen = true },
+                        onScanQr = launchQrScanner
                     )
                     1 -> RadarFormationPage(
                         riders = uiState.riders,
@@ -237,7 +303,8 @@ fun IntercomScreen(
                     2 -> DeviceSettingsPage(
                         uiState = uiState,
                         onEvent = onEvent,
-                        onRequestBatteryExemption = onRequestBatteryExemption
+                        onRequestBatteryExemption = onRequestBatteryExemption,
+                        onShowQr = { isQrDialogOpen = true }
                     )
                 }
             }
@@ -308,6 +375,8 @@ private fun CallsignEditDialog(
 private fun ChannelPickerSheet(
     currentChannel: Int,
     onSelectChannel: (Int) -> Unit,
+    onShowQr: () -> Unit,
+    onScanQr: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState()
@@ -333,8 +402,57 @@ private fun ChannelPickerSheet(
                 text = "Only riders on the same channel hear each other",
                 fontSize = 12.sp,
                 color = TextSecondary,
-                modifier = Modifier.padding(top = 4.dp, bottom = 18.dp)
+                modifier = Modifier.padding(top = 4.dp, bottom = 14.dp)
             )
+
+            // QR Fast Action Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = onShowQr,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = DarkBackground,
+                        contentColor = AccentCyan
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCode2,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(text = "SHARE QR", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+
+                Button(
+                    onClick = onScanQr,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentCyan,
+                        contentColor = DarkBackground
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCodeScanner,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(text = "SCAN QR", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Channels 1 to 4
             Row(

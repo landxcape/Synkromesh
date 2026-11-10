@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
@@ -63,6 +64,7 @@ fun DeviceSettingsPage(
     uiState: IntercomUiState,
     onEvent: (IntercomUiEvent) -> Unit,
     onRequestBatteryExemption: () -> Unit,
+    onShowQr: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -86,7 +88,8 @@ fun DeviceSettingsPage(
         // 1. Rider Profile Card
         RiderProfileCard(
             callsign = uiState.callsign,
-            onEditCallsign = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(true)) }
+            onEditCallsign = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(true)) },
+            onShowQr = onShowQr
         )
 
         // 2. Lead Rider Hotspot Host Card
@@ -122,7 +125,8 @@ fun DeviceSettingsPage(
 @Composable
 private fun RiderProfileCard(
     callsign: String,
-    onEditCallsign: () -> Unit
+    onEditCallsign: () -> Unit,
+    onShowQr: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -168,22 +172,44 @@ private fun RiderProfileCard(
                 }
             }
 
-            Button(
-                onClick = onEditCallsign,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = DarkBackground,
-                    contentColor = AccentCyan
-                ),
-                shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.3f))
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Edit,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp)
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    onClick = onShowQr,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentCyan.copy(alpha = 0.15f),
+                        contentColor = AccentCyan
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.3f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCode2,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "QR", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(text = "EDIT", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+
+                Button(
+                    onClick = onEditCallsign,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = DarkBackground,
+                        contentColor = AccentCyan
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.3f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "EDIT", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
