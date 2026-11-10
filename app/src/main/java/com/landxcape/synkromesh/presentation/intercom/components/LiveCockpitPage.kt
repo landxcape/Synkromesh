@@ -5,19 +5,24 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,10 +39,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
@@ -45,10 +47,7 @@ import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Speaker
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -61,14 +60,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.landxcape.synkromesh.domain.model.IntercomMode
@@ -81,6 +80,8 @@ import com.landxcape.synkromesh.presentation.theme.AccentAmber
 import com.landxcape.synkromesh.presentation.theme.AccentCyan
 import com.landxcape.synkromesh.presentation.theme.AccentGreen
 import com.landxcape.synkromesh.presentation.theme.AccentRed
+import com.landxcape.synkromesh.presentation.theme.BorderFocus
+import com.landxcape.synkromesh.presentation.theme.BorderSubtle
 import com.landxcape.synkromesh.presentation.theme.DarkBackground
 import com.landxcape.synkromesh.presentation.theme.DarkSurface
 import com.landxcape.synkromesh.presentation.theme.DarkSurfaceElevated
@@ -89,9 +90,9 @@ import com.landxcape.synkromesh.presentation.theme.TextPrimary
 import com.landxcape.synkromesh.presentation.theme.TextSecondary
 
 /**
- * Phase 2: Live Cockpit HUD (In-Ride Context)
- * 100% distraction-free heads-up display combining 240dp Hero Voice Disc, inline closest-rider telemetry,
- * and collapsible 2D radar overlay with 0 page swiping required.
+ * Phase 2: Live Cockpit HUD
+ * Minimalist, tool-grade automotive instrument.
+ * Zero colorful gradients, zero cartoon bubbles. Precision audio reticle and live telemetry tape.
  */
 @Composable
 fun LiveCockpitPage(
@@ -109,12 +110,12 @@ fun LiveCockpitPage(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // 1. Top Glance Status Ribbon
-            CockpitStatusRibbon(
+            // 1. Top Technical Status Strip
+            CockpitStatusStrip(
                 channel = uiState.rideChannel,
                 meshState = uiState.meshState,
                 riderCount = uiState.riders.size,
@@ -122,15 +123,15 @@ fun LiveCockpitPage(
                 headsetName = uiState.audioRouting.connectedDeviceName
             )
 
-            // 2. Active Speaker Banner
-            ActiveSpeakerRibbon(
+            // 2. Minimalist Speaker State Banner
+            SpeakerStateBanner(
                 transmissionState = uiState.transmissionState,
                 riders = uiState.riders,
                 isMuted = uiState.isMuted
             )
 
-            // 3. Center Hero Voice Target Disc
-            CockpitHeroVoiceDisc(
+            // 3. Precision Voice Reticle (Hero Instrument)
+            VoiceReticleInstrument(
                 mode = uiState.selectedMode,
                 transmissionState = uiState.transmissionState,
                 isMuted = uiState.isMuted,
@@ -139,8 +140,8 @@ fun LiveCockpitPage(
                 onToggleClick = { onEvent(IntercomUiEvent.ToggleMuteClicked) }
             )
 
-            // 4. Inline Closest Rider Telemetry Strip
-            InlineFormationStrip(
+            // 4. Low-Profile Telemetry Tape
+            TelemetryTape(
                 riders = uiState.riders,
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -148,8 +149,8 @@ fun LiveCockpitPage(
                 }
             )
 
-            // 5. Bottom Tactical Control Bar
-            TacticalBottomBar(
+            // 5. Tactical Matte Action Keys
+            CockpitControlKeys(
                 isMuted = uiState.isMuted,
                 isSpeakerphoneOn = uiState.isSpeakerphoneOn,
                 isScoConnected = uiState.audioRouting.isScoConnected,
@@ -171,8 +172,8 @@ fun LiveCockpitPage(
         // Full 2D Tactical Radar Overlay (when tapped)
         AnimatedVisibility(
             visible = uiState.isRadarOverlayActive,
-            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
-            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 })
+            enter = fadeIn(tween(180)) + slideInVertically(initialOffsetY = { it / 3 }),
+            exit = fadeOut(tween(150)) + slideOutVertically(targetOffsetY = { it / 3 })
         ) {
             CockpitRadarOverlay(
                 riders = uiState.riders,
@@ -184,7 +185,7 @@ fun LiveCockpitPage(
 }
 
 @Composable
-private fun CockpitStatusRibbon(
+private fun CockpitStatusStrip(
     channel: Int,
     meshState: MeshState,
     riderCount: Int,
@@ -193,90 +194,69 @@ private fun CockpitStatusRibbon(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = DarkSurfaceElevated,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.5.dp, DarkSurface)
+        color = DarkSurface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, BorderSubtle)
     ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // Channel Pill
+            // Left: Channel and Mesh Node count
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    color = AccentCyan.copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.4f))
-                ) {
-                    Text(
-                        text = "CH $channel",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        color = AccentCyan,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "ACTIVE MESH",
+                    text = "CH 0$channel",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Black,
+                    color = TextPrimary
+                )
+                Text(
+                    text = " // ",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    color = BorderFocus
+                )
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(
+                            when (meshState) {
+                                MeshState.CONNECTED -> AccentGreen
+                                MeshState.SEARCHING -> AccentAmber
+                                MeshState.DISCONNECTED -> TextMuted
+                            }
+                        )
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "$riderCount NODES",
+                    fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextSecondary
                 )
             }
 
-            // Riders & Audio status
+            // Right: Bluetooth SCO indicator
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Connected Count Pill
-                Surface(
-                    color = when (meshState) {
-                        MeshState.CONNECTED -> AccentGreen.copy(alpha = 0.15f)
-                        MeshState.SEARCHING -> AccentAmber.copy(alpha = 0.15f)
-                        MeshState.DISCONNECTED -> TextMuted.copy(alpha = 0.15f)
-                    },
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    when (meshState) {
-                                        MeshState.CONNECTED -> AccentGreen
-                                        MeshState.SEARCHING -> AccentAmber
-                                        MeshState.DISCONNECTED -> TextMuted
-                                    }
-                                )
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "$riderCount RIDERS",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black,
-                            color = when (meshState) {
-                                MeshState.CONNECTED -> AccentGreen
-                                MeshState.SEARCHING -> AccentAmber
-                                MeshState.DISCONNECTED -> TextMuted
-                            }
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                // Headset SCO Icon
                 Icon(
                     imageVector = Icons.Default.Headset,
                     contentDescription = headsetName ?: "Headset",
                     tint = if (isScoConnected) AccentGreen else TextMuted,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (isScoConnected) "SCO" else "SPK",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isScoConnected) AccentGreen else TextMuted
                 )
             }
         }
@@ -284,57 +264,54 @@ private fun CockpitStatusRibbon(
 }
 
 @Composable
-private fun ActiveSpeakerRibbon(
+private fun SpeakerStateBanner(
     transmissionState: TransmissionState,
     riders: List<Rider>,
     isMuted: Boolean
 ) {
     val activeSpeaker = riders.firstOrNull { it.isTransmitting && !it.isLocalUser }
 
-    val (bannerText, bannerColor) = when {
-        isMuted -> "MIC MUTED (TAP TO UNMUTE)" to AccentRed
-        transmissionState == TransmissionState.TRANSMITTING -> "YOU ARE TRANSMITTING" to AccentGreen
-        activeSpeaker != null -> "${activeSpeaker.callsign.uppercase()} TRANSMITTING" to AccentCyan
-        else -> "CHANNEL READY • VOICE IDLE" to TextSecondary
+    val (statusText, statusDotColor) = when {
+        isMuted -> "MIC MUTED" to AccentRed
+        transmissionState == TransmissionState.TRANSMITTING -> "HOT MIC // TRANSMITTING" to AccentGreen
+        activeSpeaker != null -> "${activeSpeaker.callsign.uppercase()} // TRANSMITTING" to AccentCyan
+        else -> "STANDBY // READY" to TextMuted
     }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = bannerColor.copy(alpha = 0.12f),
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.5.dp, bannerColor.copy(alpha = 0.4f))
+        color = DarkSurface,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, BorderSubtle)
     ) {
         Row(
             modifier = Modifier
-                .padding(vertical = 12.dp, horizontal = 16.dp)
+                .padding(vertical = 8.dp, horizontal = 14.dp)
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            Icon(
-                imageVector = when {
-                    isMuted -> Icons.Default.MicOff
-                    transmissionState == TransmissionState.TRANSMITTING || activeSpeaker != null -> Icons.Default.GraphicEq
-                    else -> Icons.Default.Mic
-                },
-                contentDescription = null,
-                tint = bannerColor,
-                modifier = Modifier.size(20.dp)
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(statusDotColor)
             )
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = bannerText,
-                fontWeight = FontWeight.Black,
-                fontSize = 14.sp,
+                text = statusText,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
                 letterSpacing = 1.sp,
-                color = bannerColor
+                color = if (statusDotColor == TextMuted) TextSecondary else TextPrimary
             )
         }
     }
 }
 
 @Composable
-private fun CockpitHeroVoiceDisc(
+private fun VoiceReticleInstrument(
     mode: IntercomMode,
     transmissionState: TransmissionState,
     isMuted: Boolean,
@@ -348,66 +325,65 @@ private fun CockpitHeroVoiceDisc(
     val isTransmitting = transmissionState == TransmissionState.TRANSMITTING || isPressedLocally
     val isReceiving = transmissionState == TransmissionState.RECEIVING
 
-    val discColor by animateColorAsState(
+    val activeColor by animateColorAsState(
         targetValue = when {
             isMuted -> AccentRed
             isTransmitting -> AccentGreen
             isReceiving -> AccentCyan
-            else -> DarkSurfaceElevated
+            else -> BorderFocus
         },
-        animationSpec = tween(150),
-        label = "discColor"
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "reticleColor"
     )
 
-    val discBorderColor by animateColorAsState(
-        targetValue = when {
-            isMuted -> AccentRed.copy(alpha = 0.8f)
-            isTransmitting -> AccentGreen.copy(alpha = 0.9f)
-            isReceiving -> AccentCyan.copy(alpha = 0.9f)
-            else -> AccentCyan.copy(alpha = 0.3f)
-        },
-        label = "discBorderColor"
+    val scale by animateFloatAsState(
+        targetValue = if (isPressedLocally) 0.96f else 1.0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "reticleScale"
     )
-
-    // Breathing pulse animation when transmitting
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1.0f,
-        targetValue = if (isTransmitting) 1.08f else 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseScale"
-    )
-
-    val audioRippleScale = 1.0f + (micAudioLevel * 0.25f).coerceIn(0f, 0.3f)
 
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .size(240.dp)
-            .scale(if (isTransmitting) pulseScale else 1.0f)
+            .size(230.dp)
+            .scale(scale)
     ) {
-        // Outer glow ripple
-        if (isTransmitting || isReceiving) {
-            Box(
-                modifier = Modifier
-                    .size(240.dp * audioRippleScale)
-                    .clip(CircleShape)
-                    .background(discColor.copy(alpha = 0.15f))
+        // Technical Concentric Reticle Rings (Canvas)
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val center = Offset(size.width / 2, size.height / 2)
+            val radius = size.width / 2
+
+            // Outer Hairline
+            drawCircle(
+                color = BorderSubtle,
+                radius = radius - 2.dp.toPx(),
+                center = center,
+                style = Stroke(width = 1.dp.toPx())
             )
+
+            // Middle Active Ring
+            drawCircle(
+                color = if (isTransmitting || isReceiving || isMuted) activeColor.copy(alpha = 0.5f) else BorderSubtle.copy(alpha = 0.5f),
+                radius = radius - 16.dp.toPx(),
+                center = center,
+                style = Stroke(width = 1.dp.toPx())
+            )
+
+            // Dynamic Audio Wave Ring
+            if (isTransmitting) {
+                val waveRadius = radius - 30.dp.toPx() + (micAudioLevel * 20.dp.toPx())
+                drawCircle(
+                    color = AccentGreen.copy(alpha = 0.2f),
+                    radius = waveRadius.coerceAtLeast(radius - 30.dp.toPx()),
+                    center = center
+                )
+            }
         }
 
-        // Main Tactile Disc
+        // Tactile Center Disc (Interactive Core)
         Surface(
             modifier = Modifier
-                .size(210.dp)
-                .shadow(
-                    elevation = if (isTransmitting) 24.dp else 8.dp,
-                    shape = CircleShape,
-                    spotColor = discColor
-                )
+                .size(170.dp)
                 .clip(CircleShape)
                 .pointerInput(mode) {
                     when (mode) {
@@ -434,9 +410,12 @@ private fun CockpitHeroVoiceDisc(
                         }
                     }
                 },
-            color = discColor,
+            color = DarkSurface,
             shape = CircleShape,
-            border = BorderStroke(4.dp, discBorderColor)
+            border = BorderStroke(
+                width = if (isTransmitting || isReceiving || isMuted) 2.dp else 1.dp,
+                color = activeColor
+            )
         ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -446,36 +425,34 @@ private fun CockpitHeroVoiceDisc(
                 Icon(
                     imageVector = when {
                         isMuted -> Icons.Default.MicOff
-                        isTransmitting -> Icons.Default.Mic
-                        isReceiving -> Icons.Default.GraphicEq
                         else -> Icons.Default.Mic
                     },
                     contentDescription = null,
-                    tint = if (isTransmitting || isReceiving || isMuted) DarkBackground else AccentCyan,
-                    modifier = Modifier.size(52.dp)
+                    tint = activeColor,
+                    modifier = Modifier.size(36.dp)
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
                     text = when {
                         isMuted -> "MUTED"
-                        isTransmitting -> "LIVE TALK"
-                        isReceiving -> "LISTENING"
-                        mode == IntercomMode.PUSH_TO_TALK -> "HOLD TO TALK"
-                        else -> "TAP TO TALK"
+                        isTransmitting -> "LIVE"
+                        isReceiving -> "INCOMING"
+                        mode == IntercomMode.PUSH_TO_TALK -> "HOLD TALK"
+                        else -> "TAP TALK"
                     },
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Black,
-                    fontSize = 17.sp,
                     letterSpacing = 1.sp,
-                    color = if (isTransmitting || isReceiving || isMuted) DarkBackground else TextPrimary
+                    color = TextPrimary
                 )
 
                 Text(
                     text = mode.name.replace("_", " "),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp,
-                    color = if (isTransmitting || isReceiving || isMuted) DarkBackground.copy(alpha = 0.7f) else TextSecondary
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    color = TextMuted
                 )
             }
         }
@@ -483,7 +460,7 @@ private fun CockpitHeroVoiceDisc(
 }
 
 @Composable
-private fun InlineFormationStrip(
+private fun TelemetryTape(
     riders: List<Rider>,
     onClick: () -> Unit
 ) {
@@ -495,107 +472,86 @@ private fun InlineFormationStrip(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(12.dp))
             .clickable { onClick() },
-        color = DarkSurfaceElevated,
-        shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.5.dp, AccentCyan.copy(alpha = 0.4f))
+        color = DarkSurface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, BorderSubtle)
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+            if (nearest.isEmpty()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.Radar,
                         contentDescription = null,
-                        tint = AccentCyan,
-                        modifier = Modifier.size(18.dp)
+                        tint = TextMuted,
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "FORMATION TELEMETRY",
+                        text = if (remoteRiders.isEmpty()) "NO OTHER NODES IN RANGE" else "CALCULATING GPS FORMATION...",
+                        fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Black,
-                        color = TextSecondary,
-                        letterSpacing = 1.sp
+                        fontWeight = FontWeight.Bold,
+                        color = TextMuted
                     )
                 }
-
-                Text(
-                    text = "TAP TO EXPAND 2D RADAR",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Black,
-                    color = AccentCyan
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (nearest.isEmpty()) {
-                Text(
-                    text = if (remoteRiders.isEmpty()) "No other riders in range" else "Calculating GPS formation...",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = TextMuted
-                )
             } else {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     for (rider in nearest) {
-                        Surface(
-                            modifier = Modifier.weight(1f),
-                            color = DarkSurface,
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, DarkSurfaceElevated)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column {
-                                    Text(
-                                        text = rider.callsign,
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 13.sp,
-                                        color = TextPrimary
-                                    )
-                                    Text(
-                                        text = rider.formattedDistance,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
-                                        color = AccentCyan
-                                    )
-                                }
-
-                                if (rider.relativeBearingDegrees != null) {
-                                    Icon(
-                                        imageVector = Icons.Default.Navigation,
-                                        contentDescription = "Bearing",
-                                        tint = AccentCyan,
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .rotate(rider.relativeBearingDegrees)
-                                    )
-                                }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = rider.callsign.uppercase(),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                color = TextPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = rider.formattedDistance,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AccentCyan
+                            )
+                            if (rider.relativeBearingDegrees != null) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Navigation,
+                                    contentDescription = null,
+                                    tint = AccentCyan,
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .rotate(rider.relativeBearingDegrees)
+                                )
                             }
                         }
                     }
                 }
             }
+
+            Text(
+                text = "RADAR ↗",
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextSecondary
+            )
         }
     }
 }
 
 @Composable
-private fun TacticalBottomBar(
+private fun CockpitControlKeys(
     isMuted: Boolean,
     isSpeakerphoneOn: Boolean,
     isScoConnected: Boolean,
@@ -606,42 +562,33 @@ private fun TacticalBottomBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 1. Mute Mic (Tactical Action)
-        TacticalPillButton(
-            text = if (isMuted) "UNMUTE" else "MUTE",
+        // Key 1: Mute
+        TacticalKey(
+            title = if (isMuted) "MIC MUTED" else "MIC ON",
+            indicatorColor = if (isMuted) AccentRed else AccentGreen,
             icon = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
-            accentColor = if (isMuted) AccentRed else DarkSurfaceElevated,
-            textColor = if (isMuted) DarkBackground else TextPrimary,
-            iconTint = if (isMuted) DarkBackground else AccentRed,
-            borderColor = AccentRed.copy(alpha = 0.6f),
             onClick = onToggleMute,
             modifier = Modifier.weight(1f)
         )
 
-        // 2. Audio Speaker/Headset Route
-        TacticalPillButton(
-            text = if (isScoConnected) "HEADSET" else if (isSpeakerphoneOn) "SPEAKER" else "EARPIECE",
+        // Key 2: Audio Routing
+        TacticalKey(
+            title = if (isScoConnected) "HEADSET" else if (isSpeakerphoneOn) "SPEAKER" else "EARPIECE",
+            indicatorColor = if (isScoConnected) AccentGreen else AccentCyan,
             icon = if (isScoConnected) Icons.Default.Headset else Icons.Default.Speaker,
-            accentColor = DarkSurfaceElevated,
-            textColor = TextPrimary,
-            iconTint = if (isScoConnected) AccentGreen else AccentCyan,
-            borderColor = AccentCyan.copy(alpha = 0.4f),
             onClick = onToggleSpeaker,
             modifier = Modifier.weight(1f)
         )
 
-        // 3. Standby / Leave to Lobby
-        TacticalPillButton(
-            text = "STANDBY",
+        // Key 3: Disengage / Standby
+        TacticalKey(
+            title = "STANDBY",
+            indicatorColor = AccentAmber,
             icon = Icons.Default.PowerSettingsNew,
-            accentColor = DarkSurfaceElevated,
-            textColor = TextSecondary,
-            iconTint = AccentAmber,
-            borderColor = AccentAmber.copy(alpha = 0.4f),
             onClick = onStandby,
             modifier = Modifier.weight(1f)
         )
@@ -649,24 +596,35 @@ private fun TacticalBottomBar(
 }
 
 @Composable
-private fun TacticalPillButton(
-    text: String,
+private fun TacticalKey(
+    title: String,
+    indicatorColor: Color,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    accentColor: Color,
-    textColor: Color,
-    iconTint: Color,
-    borderColor: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1.0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "keyScale"
+    )
+
     Surface(
         modifier = modifier
-            .height(58.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onClick() },
-        color = accentColor,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.5.dp, borderColor)
+            .height(54.dp)
+            .scale(scale)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
+        color = DarkSurface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, BorderSubtle)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -676,16 +634,16 @@ private fun TacticalPillButton(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(22.dp)
+                tint = indicatorColor,
+                modifier = Modifier.size(18.dp)
             )
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(3.dp))
             Text(
-                text = text,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 0.5.sp,
-                color = textColor
+                text = title,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
             )
         }
     }
@@ -699,7 +657,7 @@ private fun CockpitRadarOverlay(
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = DarkBackground.copy(alpha = 0.95f)
+        color = DarkBackground.copy(alpha = 0.97f)
     ) {
         Column(
             modifier = Modifier
@@ -707,7 +665,7 @@ private fun CockpitRadarOverlay(
                 .padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Header with Close Button
+            // Header with Close
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -715,32 +673,33 @@ private fun CockpitRadarOverlay(
             ) {
                 Column {
                     Text(
-                        text = "TACTICAL 2D FORMATION RADAR",
+                        text = "TACTICAL RADAR",
+                        fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black,
                         fontSize = 16.sp,
                         color = TextPrimary
                     )
                     Text(
-                        text = "Real-time P2P Mesh Range & Bearing",
+                        text = "P2P Range & Direction Vector",
                         fontSize = 11.sp,
-                        color = AccentCyan
+                        color = TextMuted
                     )
                 }
 
                 Surface(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
                         .clickable { onClose() },
-                    color = DarkSurfaceElevated,
-                    border = BorderStroke(1.dp, TextMuted)
+                    color = DarkSurface,
+                    border = BorderStroke(1.dp, BorderSubtle)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Close Radar",
+                            contentDescription = "Close",
                             tint = TextPrimary,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -756,7 +715,7 @@ private fun CockpitRadarOverlay(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // List of connected riders
+            // List of connected nodes
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -766,9 +725,9 @@ private fun CockpitRadarOverlay(
                 items(riders, key = { it.id }) { rider ->
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        color = DarkSurfaceElevated,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, DarkSurface)
+                        color = DarkSurface,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, BorderSubtle)
                     ) {
                         Row(
                             modifier = Modifier
@@ -779,15 +738,16 @@ private fun CockpitRadarOverlay(
                         ) {
                             Column {
                                 Text(
-                                    text = rider.callsign,
+                                    text = rider.callsign.uppercase(),
                                     fontWeight = FontWeight.Black,
-                                    fontSize = 14.sp,
+                                    fontSize = 13.sp,
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = "Distance: ${rider.formattedDistance} ${rider.relativePosition ?: ""}",
-                                    fontSize = 11.sp,
-                                    color = AccentCyan
+                                    text = "RANGE: ${rider.formattedDistance} ${rider.relativePosition ?: ""}",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    color = TextSecondary
                                 )
                             }
 
@@ -797,7 +757,7 @@ private fun CockpitRadarOverlay(
                                     contentDescription = "Bearing",
                                     tint = AccentCyan,
                                     modifier = Modifier
-                                        .size(18.dp)
+                                        .size(16.dp)
                                         .rotate(rider.relativeBearingDegrees)
                                 )
                             }
