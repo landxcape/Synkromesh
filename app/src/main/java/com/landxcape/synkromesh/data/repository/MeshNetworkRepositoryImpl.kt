@@ -9,6 +9,7 @@ import com.landxcape.synkromesh.data.datasource.mesh.WifiHotspotClientDriver
 import com.landxcape.synkromesh.domain.model.AudioPacket
 import com.landxcape.synkromesh.domain.model.MeshPeer
 import com.landxcape.synkromesh.domain.model.MeshState
+import com.landxcape.synkromesh.domain.model.TransportMode
 import com.landxcape.synkromesh.domain.repository.AudioEngineRepository
 import com.landxcape.synkromesh.domain.repository.MeshNetworkRepository
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +39,7 @@ class MeshNetworkRepositoryImpl @Inject constructor(
     private var telemetryBroadcastJob: Job? = null
     private var heartbeatJob: Job? = null
     private var activePackToken: String? = null
+    private var activeTransportMode: TransportMode = TransportMode.DUAL
 
     override fun setPackToken(token: String?) {
         activePackToken = token
@@ -50,8 +52,8 @@ class MeshNetworkRepositoryImpl @Inject constructor(
     ) { nearbyState, udpPeers ->
         when {
             udpPeers.isNotEmpty() -> MeshState.CONNECTED
-            nearbyState == MeshState.CONNECTED -> MeshState.CONNECTED
-            nearbyState == MeshState.SEARCHING -> MeshState.SEARCHING
+            activeTransportMode == TransportMode.DUAL && nearbyState == MeshState.CONNECTED -> MeshState.CONNECTED
+            activeTransportMode == TransportMode.DUAL && nearbyState == MeshState.SEARCHING -> MeshState.SEARCHING
             else -> MeshState.DISCONNECTED
         }
     }
@@ -60,7 +62,8 @@ class MeshNetworkRepositoryImpl @Inject constructor(
         nearbyDriver.peersFlow,
         udpDriver.udpPeersFlow
     ) { nearbyPeers, udpPeers ->
-        val combined = (nearbyPeers + udpPeers)
+        val activeNearby = if (activeTransportMode == TransportMode.DUAL) nearbyPeers else emptyList()
+        val combined = (activeNearby + udpPeers)
         combined.distinctBy { it.callsign.lowercase().trim() }
     }
 
@@ -73,7 +76,12 @@ class MeshNetworkRepositoryImpl @Inject constructor(
     override fun observeHotspotSsid(): Flow<String?> = hotspotDriver.hotspotSsid
     override fun observeHotspotPassword(): Flow<String?> = hotspotDriver.hotspotPassword
 
-    override suspend fun startMeshSession(callsign: String, channel: Int): Result<Unit> = runCatching {
+    override suspend fun startMeshSession(
+        callsign: String,
+        channel: Int,
+        transportMode: TransportMode
+    ): Result<Unit> = runCatching {
+        activeTransportMode = transportMode
         val deviceId = preferencesDataSource.getDeviceId()
 
         // 1. Configure and start UDP broadcast driver
@@ -83,23 +91,32 @@ class MeshNetworkRepositoryImpl @Inject constructor(
         udpDriver.activePackToken = activePackToken
         udpDriver.startSocket().getOrThrow()
 
-        // 2. Start automated zero-config BLE discovery & Wi-Fi Direct handshake for Channel
-        nearbyDriver.startDiscoveryAndAdvertising(callsign, channel, deviceId).getOrThrow()
+        // 2. Start automated zero-config BLE discovery & Wi-Fi Direct handshake for Channel (DUAL mode only)
+        if (transportMode == TransportMode.DUAL) {
+            nearbyDriver.startDiscoveryAndAdvertising(callsign, channel, deviceId).getOrThrow()
+        }
 
-        // 3. Start full-duplex DUAL-TRANSPORT audio bridging:
-        // Transmits over BOTH UDP broadcast (for fast Wi-Fi/Hotspot) AND Nearby Connections (for road P2P)
+        // 3. Start full-duplex audio bridging:
+        // Transmits over UDP (and Nearby Connections if DUAL)
         audioBridgeJob?.cancel()
         audioBridgeJob = meshScope.launch {
-            // Outgoing transmission: mic -> Opus -> UDP + Nearby
+            // Outgoing transmission: mic -> Opus -> UDP (+ Nearby if DUAL)
             launch {
                 audioEngineRepository.observeOutgoingPackets().collect { outgoingPacket ->
                     udpDriver.sendPacket(outgoingPacket)
-                    nearbyDriver.sendAudioPayload(outgoingPacket)
+                    if (transportMode == TransportMode.DUAL) {
+                        nearbyDriver.sendAudioPayload(outgoingPacket)
+                    }
                 }
             }
-            // Incoming reception: UDP socket OR Nearby socket -> Opus decode -> loud speaker or helmet
+            // Incoming reception: UDP socket (+ Nearby socket if DUAL) -> Opus decode -> loud speaker or helmet
             launch {
-                merge(udpDriver.incomingAudioFlow, nearbyDriver.incomingAudioFlow).collect { incomingPacket ->
+                val incomingFlow = if (transportMode == TransportMode.DUAL) {
+                    merge(udpDriver.incomingAudioFlow, nearbyDriver.incomingAudioFlow)
+                } else {
+                    udpDriver.incomingAudioFlow
+                }
+                incomingFlow.collect { incomingPacket ->
                     audioEngineRepository.playIncomingPacket(incomingPacket)
                 }
             }
@@ -126,21 +143,23 @@ class MeshNetworkRepositoryImpl @Inject constructor(
             }
         }
 
-        // 5. Periodic telemetry broadcasting for distance calculation
+        // 5. Periodic telemetry broadcasting for distance calculation (DUAL mode only)
         telemetryBroadcastJob?.cancel()
-        telemetryBroadcastJob = meshScope.launch {
-            while (true) {
-                delay(2000L)
-                val loc = locationDataSource.currentLocation.value
-                if (loc != null) {
-                    nearbyDriver.broadcastTelemetry(
-                        lat = loc.latitude,
-                        lon = loc.longitude,
-                        alt = loc.altitude,
-                        speedKmh = loc.speedKmh,
-                        bearingDegrees = loc.bearingDegrees,
-                        batteryPercent = loc.batteryPercent
-                    )
+        if (transportMode == TransportMode.DUAL) {
+            telemetryBroadcastJob = meshScope.launch {
+                while (true) {
+                    delay(2000L)
+                    val loc = locationDataSource.currentLocation.value
+                    if (loc != null) {
+                        nearbyDriver.broadcastTelemetry(
+                            lat = loc.latitude,
+                            lon = loc.longitude,
+                            alt = loc.altitude,
+                            speedKmh = loc.speedKmh,
+                            bearingDegrees = loc.bearingDegrees,
+                            batteryPercent = loc.batteryPercent
+                        )
+                    }
                 }
             }
         }
@@ -169,7 +188,9 @@ class MeshNetworkRepositoryImpl @Inject constructor(
 
     override suspend fun broadcastVoicePacket(packet: AudioPacket): Result<Unit> {
         udpDriver.sendPacket(packet)
-        nearbyDriver.sendAudioPayload(packet)
+        if (activeTransportMode == TransportMode.DUAL) {
+            nearbyDriver.sendAudioPayload(packet)
+        }
         return Result.success(Unit)
     }
 
@@ -182,7 +203,10 @@ class MeshNetworkRepositoryImpl @Inject constructor(
         batteryPercent: Int
     ): Result<Unit> {
         udpDriver.sendHeartbeat(latitude, longitude, altitude, speedKmh, bearingDegrees, batteryPercent)
-        return nearbyDriver.broadcastTelemetry(latitude, longitude, altitude, speedKmh, bearingDegrees, batteryPercent)
+        if (activeTransportMode == TransportMode.DUAL) {
+            nearbyDriver.broadcastTelemetry(latitude, longitude, altitude, speedKmh, bearingDegrees, batteryPercent)
+        }
+        return Result.success(Unit)
     }
 
     override suspend fun startLocalHotspot(): Result<Unit> {

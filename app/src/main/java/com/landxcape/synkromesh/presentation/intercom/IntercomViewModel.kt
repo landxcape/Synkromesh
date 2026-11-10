@@ -15,6 +15,7 @@ import com.landxcape.synkromesh.domain.model.MeshPeer
 import com.landxcape.synkromesh.domain.model.MeshState
 import com.landxcape.synkromesh.domain.model.Rider
 import com.landxcape.synkromesh.domain.model.TransmissionState
+import com.landxcape.synkromesh.domain.model.TransportMode
 import com.landxcape.synkromesh.domain.repository.AudioEngineRepository
 import com.landxcape.synkromesh.domain.repository.BluetoothScoRepository
 import com.landxcape.synkromesh.domain.repository.IntercomRepository
@@ -272,7 +273,7 @@ class IntercomViewModel @Inject constructor(
         if (uiState.value.isSessionActive) {
             val callsign = preferencesDataSource.callsignFlow.first()
             meshNetworkRepository.stopMeshSession()
-            meshNetworkRepository.startMeshSession(callsign, channel)
+            meshNetworkRepository.startMeshSession(callsign, channel, _groupingMode.value.toTransportMode())
         }
     }
 
@@ -374,7 +375,7 @@ class IntercomViewModel @Inject constructor(
             val channel = preferencesDataSource.rideChannelFlow.first()
             startIntercomSessionUseCase().onSuccess {
                 audioEngineRepository.startAudioEngine()
-                meshNetworkRepository.startMeshSession(callsign, channel)
+                meshNetworkRepository.startMeshSession(callsign, channel, _groupingMode.value.toTransportMode())
             }.onFailure { err ->
                 _errorFlow.value = "Failed to engage intercom: ${err.message}"
             }
@@ -409,7 +410,7 @@ class IntercomViewModel @Inject constructor(
             val channel = preferencesDataSource.rideChannelFlow.first()
             startIntercomSessionUseCase().onSuccess {
                 audioEngineRepository.startAudioEngine()
-                meshNetworkRepository.startMeshSession(callsign, channel)
+                meshNetworkRepository.startMeshSession(callsign, channel, _groupingMode.value.toTransportMode())
             }.onFailure { err ->
                 _errorFlow.value = "Session failure: ${err.message}"
             }
@@ -466,4 +467,9 @@ class IntercomViewModel @Inject constructor(
         val isRadarOverlayActive: Boolean,
         val packToken: String?
     )
+}
+
+private fun GroupingMode.toTransportMode(): TransportMode = when (this) {
+    GroupingMode.OPEN_MESH -> TransportMode.DUAL
+    GroupingMode.LEAD, GroupingMode.JOIN -> TransportMode.HOTSPOT_UDP
 }

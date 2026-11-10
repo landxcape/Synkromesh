@@ -3,6 +3,7 @@ package com.landxcape.synkromesh.domain.repository
 import com.landxcape.synkromesh.domain.model.AudioPacket
 import com.landxcape.synkromesh.domain.model.MeshPeer
 import com.landxcape.synkromesh.domain.model.MeshState
+import com.landxcape.synkromesh.domain.model.TransportMode
 import kotlinx.coroutines.flow.Flow
 
 interface MeshNetworkRepository {
@@ -13,7 +14,11 @@ interface MeshNetworkRepository {
     fun observeHotspotSsid(): Flow<String?>
     fun observeHotspotPassword(): Flow<String?>
 
-    suspend fun startMeshSession(callsign: String, channel: Int = 1): Result<Unit>
+    suspend fun startMeshSession(
+        callsign: String,
+        channel: Int = 1,
+        transportMode: TransportMode = TransportMode.DUAL
+    ): Result<Unit>
     suspend fun stopMeshSession(): Result<Unit>
     suspend fun broadcastVoicePacket(packet: AudioPacket): Result<Unit>
     suspend fun broadcastTelemetry(
