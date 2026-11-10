@@ -183,7 +183,7 @@ private fun FormationHeader(
 }
 
 @Composable
-private fun RadarCanvasWidget(
+internal fun RadarCanvasWidget(
     riders: List<Rider>,
     isScanning: Boolean,
     modifier: Modifier = Modifier
