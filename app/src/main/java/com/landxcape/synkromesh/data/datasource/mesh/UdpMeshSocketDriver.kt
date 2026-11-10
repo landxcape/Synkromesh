@@ -208,9 +208,9 @@ class UdpMeshSocketDriver @Inject constructor(
             return
         }
 
-        // CRITICAL 3: AUTHENTICATE PACK TOKEN (Rejects unauthenticated third-party packets)
+        // CRITICAL 3: AUTHENTICATE PACK TOKEN (Rejects rogue packets with mismatched tokens)
         val expectedToken = activePackToken
-        if (!expectedToken.isNullOrBlank()) {
+        if (!expectedToken.isNullOrBlank() && !senderTokenHash.isNullOrBlank()) {
             val expectedHash = expectedToken.hashCode().toString()
             if (senderTokenHash != expectedHash) {
                 // Drop rogue or unauthenticated packet
