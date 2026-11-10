@@ -9,7 +9,21 @@ import com.landxcape.synkromesh.domain.model.Rider
 import com.landxcape.synkromesh.domain.model.TransmissionState
 import com.landxcape.synkromesh.util.PreflightStatus
 
+enum class CockpitPhase {
+    STAGING,
+    COCKPIT
+}
+
+enum class GroupingMode {
+    LEAD,
+    JOIN,
+    OPEN_MESH
+}
+
 data class IntercomUiState(
+    val cockpitPhase: CockpitPhase = CockpitPhase.STAGING,
+    val groupingMode: GroupingMode = GroupingMode.OPEN_MESH,
+    val isRadarOverlayActive: Boolean = false,
     val isSessionActive: Boolean = false,
     val selectedMode: IntercomMode = IntercomMode.PUSH_TO_TALK,
     val transmissionState: TransmissionState = TransmissionState.IDLE,
@@ -59,5 +73,9 @@ sealed interface IntercomUiEvent {
     data class TogglePeerMute(val peerId: String) : IntercomUiEvent
     data object RefreshBatteryStatus : IntercomUiEvent
     data object RefreshPreflightAndDevices : IntercomUiEvent
+    data class SelectGroupingMode(val mode: GroupingMode) : IntercomUiEvent
+    data object EngageIntercom : IntercomUiEvent
+    data object ReturnToStaging : IntercomUiEvent
+    data object ToggleRadarOverlay : IntercomUiEvent
     data object ClearError : IntercomUiEvent
 }

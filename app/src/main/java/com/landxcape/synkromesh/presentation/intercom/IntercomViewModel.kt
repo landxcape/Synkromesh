@@ -62,6 +62,9 @@ class IntercomViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _errorFlow = MutableStateFlow<String?>(null)
+    private val _cockpitPhase = MutableStateFlow(CockpitPhase.STAGING)
+    private val _groupingMode = MutableStateFlow(GroupingMode.OPEN_MESH)
+    private val _isRadarOverlayActive = MutableStateFlow(false)
     private val _isCallsignDialogOpen = MutableStateFlow(false)
     private val _isSettingsOpen = MutableStateFlow(false)
     private val _isConnectionSetupOpen = MutableStateFlow(false)
@@ -124,7 +127,10 @@ class IntercomViewModel @Inject constructor(
         _mutedPeerIds,
         _errorFlow,
         preflightManager.statusFlow,
-        bluetoothDeviceManager.devicesFlow
+        bluetoothDeviceManager.devicesFlow,
+        _cockpitPhase,
+        _groupingMode,
+        _isRadarOverlayActive
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         DialogsAndPreflightState(
@@ -135,7 +141,10 @@ class IntercomViewModel @Inject constructor(
             mutedPeerIds = args[4] as Set<String>,
             errorMessage = args[5] as String?,
             preflightStatus = args[6] as PreflightStatus,
-            pairedHeadsets = args[7] as List<PairedHeadset>
+            pairedHeadsets = args[7] as List<PairedHeadset>,
+            cockpitPhase = args[8] as CockpitPhase,
+            groupingMode = args[9] as GroupingMode,
+            isRadarOverlayActive = args[10] as Boolean
         )
     }
 
@@ -167,6 +176,9 @@ class IntercomViewModel @Inject constructor(
         }
 
         IntercomUiState(
+            cockpitPhase = dialogs.cockpitPhase,
+            groupingMode = dialogs.groupingMode,
+            isRadarOverlayActive = dialogs.isRadarOverlayActive,
             isSessionActive = audioMesh.isSessionActive,
             selectedMode = audioMesh.selectedMode,
             transmissionState = audioMesh.transmissionState,
@@ -223,6 +235,10 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.TogglePeerMute -> onTogglePeerMute(event.peerId)
                 is IntercomUiEvent.RefreshBatteryStatus -> refreshPreflightAndDevices()
                 is IntercomUiEvent.RefreshPreflightAndDevices -> refreshPreflightAndDevices()
+                is IntercomUiEvent.SelectGroupingMode -> onSelectGroupingMode(event.mode)
+                is IntercomUiEvent.EngageIntercom -> onEngageIntercom()
+                is IntercomUiEvent.ReturnToStaging -> onReturnToStaging()
+                is IntercomUiEvent.ToggleRadarOverlay -> _isRadarOverlayActive.value = !_isRadarOverlayActive.value
                 is IntercomUiEvent.ClearError -> _errorFlow.value = null
             }
         }
@@ -310,6 +326,46 @@ class IntercomViewModel @Inject constructor(
         }
     }
 
+    private suspend fun onSelectGroupingMode(mode: GroupingMode) {
+        _groupingMode.value = mode
+        if (mode == GroupingMode.LEAD) {
+            val isHotspotActive = meshNetworkRepository.observeIsHotspotActive().first()
+            if (!isHotspotActive) {
+                meshNetworkRepository.toggleLocalHotspot().onFailure { err ->
+                    _errorFlow.value = "Failed to start Lead Hotspot: ${err.message}"
+                }
+            }
+        }
+    }
+
+    private suspend fun onEngageIntercom() {
+        _cockpitPhase.value = CockpitPhase.COCKPIT
+        val isSessionActive = intercomRepository.observeIsSessionActive().first()
+        if (!isSessionActive) {
+            preflightManager.refresh()
+            val status = preflightManager.statusFlow.value
+            if (!status.areCriticalPermissionsGranted || !status.areRadiosEnabled) {
+                _isPermissionSheetVisible.value = true
+                return
+            }
+
+            val callsign = preferencesDataSource.callsignFlow.first()
+            val channel = preferencesDataSource.rideChannelFlow.first()
+            startIntercomSessionUseCase().onSuccess {
+                audioEngineRepository.startAudioEngine()
+                meshNetworkRepository.startMeshSession(callsign, channel)
+            }.onFailure { err ->
+                _errorFlow.value = "Failed to engage intercom: ${err.message}"
+            }
+        }
+        audioToneFeedbackGenerator.playFeedbackTone(FeedbackTone.MIC_OPEN)
+    }
+
+    private fun onReturnToStaging() {
+        _cockpitPhase.value = CockpitPhase.STAGING
+        _isRadarOverlayActive.value = false
+    }
+
     private suspend fun onToggleSession() {
         val currentState = uiState.value.isSessionActive
         if (currentState) {
@@ -375,6 +431,9 @@ class IntercomViewModel @Inject constructor(
         val mutedPeerIds: Set<String>,
         val errorMessage: String?,
         val preflightStatus: PreflightStatus,
-        val pairedHeadsets: List<PairedHeadset>
+        val pairedHeadsets: List<PairedHeadset>,
+        val cockpitPhase: CockpitPhase,
+        val groupingMode: GroupingMode,
+        val isRadarOverlayActive: Boolean
     )
 }
