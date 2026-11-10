@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "meshride"
+rootProject.name = "synkromesh"
 include(":app")

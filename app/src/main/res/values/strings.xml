@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name">MeshRide</string>
-    <string name="intercom_notification_title">MeshRide Active</string>
-    <string name="intercom_notification_channel_name">MeshRide Intercom</string>
-    <string name="intercom_notification_channel_desc">Active motorcycle intercom session</string>
+    <string name="app_name">Synkromesh</string>
+    <string name="intercom_notification_title">Synkromesh Active</string>
+    <string name="intercom_notification_channel_name">Synkromesh Intercom</string>
+    <string name="intercom_notification_channel_desc">Active motorcycle intercom mesh session</string>
 </resources>

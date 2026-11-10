@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.meshride"
+    namespace = "com.landxcape.synkromesh"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.meshride"
+        applicationId = "com.landxcape.synkromesh"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

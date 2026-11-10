@@ -1,0 +1,18 @@
+package com.landxcape.synkromesh.domain.repository
+
+import com.landxcape.synkromesh.domain.model.AudioLevel
+import com.landxcape.synkromesh.domain.model.AudioPacket
+import kotlinx.coroutines.flow.Flow
+
+interface AudioEngineRepository {
+    fun observeMicAudioLevel(): Flow<AudioLevel>
+    fun observeIsLoopbackActive(): Flow<Boolean>
+    fun observeIsAudioEngineActive(): Flow<Boolean>
+    fun observeOutgoingPackets(): Flow<AudioPacket>
+
+    suspend fun startAudioEngine(): Result<Unit>
+    suspend fun stopAudioEngine(): Result<Unit>
+    suspend fun setLoopbackMode(enabled: Boolean): Result<Unit>
+    suspend fun toggleLoopbackMode(): Result<Boolean>
+    suspend fun playIncomingPacket(packet: AudioPacket): Result<Unit>
+}
