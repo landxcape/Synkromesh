@@ -138,10 +138,33 @@ fun LiveCockpitPage(
                 isMuted = uiState.isMuted,
                 micAudioLevel = uiState.micAudioLevel,
                 onPttChange = { pressed -> onEvent(IntercomUiEvent.PttPressed(pressed)) },
-                onToggleClick = { onEvent(IntercomUiEvent.ToggleMuteClicked) }
+                onToggleClick = { onEvent(IntercomUiEvent.ToggleMuteClicked) },
+                onCycleMode = {
+                    val nextMode = when (uiState.selectedMode) {
+                        IntercomMode.PUSH_TO_TALK -> IntercomMode.TOGGLE
+                        IntercomMode.TOGGLE -> IntercomMode.ALWAYS_ON
+                        IntercomMode.ALWAYS_ON -> IntercomMode.PUSH_TO_TALK
+                    }
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onEvent(IntercomUiEvent.ModeChanged(nextMode))
+                }
             )
 
-            // 4. Low-Profile Telemetry Tape
+            // 4. Quick Voice Trigger Selector Pill
+            VoiceTriggerModePill(
+                mode = uiState.selectedMode,
+                onCycleMode = {
+                    val nextMode = when (uiState.selectedMode) {
+                        IntercomMode.PUSH_TO_TALK -> IntercomMode.TOGGLE
+                        IntercomMode.TOGGLE -> IntercomMode.ALWAYS_ON
+                        IntercomMode.ALWAYS_ON -> IntercomMode.PUSH_TO_TALK
+                    }
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onEvent(IntercomUiEvent.ModeChanged(nextMode))
+                }
+            )
+
+            // 5. Low-Profile Telemetry Tape
             TelemetryTape(
                 riders = uiState.riders,
                 onClick = {
@@ -318,7 +341,8 @@ private fun VoiceReticleInstrument(
     isMuted: Boolean,
     micAudioLevel: Float,
     onPttChange: (Boolean) -> Unit,
-    onToggleClick: () -> Unit
+    onToggleClick: () -> Unit,
+    onCycleMode: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     var isPressedLocally by remember { mutableStateOf(false) }
@@ -450,12 +474,51 @@ private fun VoiceReticleInstrument(
                 )
 
                 Text(
-                    text = mode.name.replace("_", " "),
+                    text = "${mode.name.replace("_", " ")} ↻",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
-                    color = TextMuted
+                    color = TextMuted,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { onCycleMode() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun VoiceTriggerModePill(
+    mode: IntercomMode,
+    onCycleMode: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .clickable { onCycleMode() },
+        color = DarkSurface,
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, BorderFocus)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(AccentCyan)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "TRIGGER: ${mode.name.replace("_", " ")} ↻",
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+            )
         }
     }
 }

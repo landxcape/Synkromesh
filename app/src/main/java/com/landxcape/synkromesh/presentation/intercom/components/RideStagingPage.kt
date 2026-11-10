@@ -1,20 +1,13 @@
 package com.landxcape.synkromesh.presentation.intercom.components
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -30,28 +23,31 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.CellTower
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Headset
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,13 +55,13 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.landxcape.synkromesh.domain.model.IntercomMode
 import com.landxcape.synkromesh.domain.model.MeshState
 import com.landxcape.synkromesh.presentation.intercom.GroupingMode
 import com.landxcape.synkromesh.presentation.intercom.IntercomUiEvent
@@ -73,7 +69,6 @@ import com.landxcape.synkromesh.presentation.intercom.IntercomUiState
 import com.landxcape.synkromesh.presentation.theme.AccentAmber
 import com.landxcape.synkromesh.presentation.theme.AccentCyan
 import com.landxcape.synkromesh.presentation.theme.AccentGreen
-import com.landxcape.synkromesh.presentation.theme.AccentRed
 import com.landxcape.synkromesh.presentation.theme.BorderFocus
 import com.landxcape.synkromesh.presentation.theme.BorderSubtle
 import com.landxcape.synkromesh.presentation.theme.DarkBackground
@@ -84,11 +79,13 @@ import com.landxcape.synkromesh.presentation.theme.TextPrimary
 import com.landxcape.synkromesh.presentation.theme.TextSecondary
 import com.landxcape.synkromesh.util.RideQrData
 import com.landxcape.synkromesh.util.RideQrManager
+import kotlinx.coroutines.launch
 
 /**
  * Phase 1: Ride Staging Lobby
- * Modern, tool-grade automotive aesthetic (Linear / Nothing OS / Industrial HMI).
- * Monochromatic discipline, 1px hairlines, segmented controls, zero loud gradients.
+ * Swappable PageView.builder-style HorizontalPager with synchronized top tabs.
+ * Tab Order: [ OPEN MESH ] [ LEAD PACK ] [ JOIN PACK ].
+ * Includes Transmission Mode Selector (PTT / TOGGLE / ALWAYS ON) and bottom-pinned hero CTA.
  */
 @Composable
 fun RideStagingPage(
@@ -98,7 +95,44 @@ fun RideStagingPage(
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+
+    // Map GroupingMode to Page Index: 0 -> OPEN_MESH, 1 -> LEAD, 2 -> JOIN
+    val initialPage = when (uiState.groupingMode) {
+        GroupingMode.OPEN_MESH -> 0
+        GroupingMode.LEAD -> 1
+        GroupingMode.JOIN -> 2
+    }
+    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { 3 })
+
+    // Synchronize pager swipe with ViewModel groupingMode
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }.collect { page ->
+            val targetMode = when (page) {
+                0 -> GroupingMode.OPEN_MESH
+                1 -> GroupingMode.LEAD
+                2 -> GroupingMode.JOIN
+                else -> GroupingMode.OPEN_MESH
+            }
+            if (targetMode != uiState.groupingMode) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onEvent(IntercomUiEvent.SelectGroupingMode(targetMode))
+            }
+        }
+    }
+
+    // Keep pager synced if external state changes groupingMode
+    LaunchedEffect(uiState.groupingMode) {
+        val targetIndex = when (uiState.groupingMode) {
+            GroupingMode.OPEN_MESH -> 0
+            GroupingMode.LEAD -> 1
+            GroupingMode.JOIN -> 2
+        }
+        if (pagerState.currentPage != targetIndex) {
+            pagerState.animateScrollToPage(targetIndex)
+        }
+    }
 
     Box(
         modifier = modifier
@@ -108,7 +142,7 @@ fun RideStagingPage(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 14.dp)
+                .padding(horizontal = 20.dp, vertical = 12.dp)
                 .verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -121,29 +155,37 @@ fun RideStagingPage(
                 onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) }
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
-            // 2. Linear-Style Segmented Mode Switcher
-            SegmentedModeSwitcher(
-                selectedMode = uiState.groupingMode,
-                onSelectMode = { mode ->
+            // 2. Perfectly Aligned Segmented Tabs (OPEN MESH is first)
+            BalancedSegmentedTabs(
+                selectedPage = pagerState.currentPage,
+                onSelectPage = { pageIndex ->
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onEvent(IntercomUiEvent.SelectGroupingMode(mode))
+                    coroutineScope.launch {
+                        pagerState.animateScrollToPage(pageIndex)
+                    }
                 }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // 3. Dynamic Mode Detail Card (Smooth Morphing Content)
-            AnimatedContent(
-                targetState = uiState.groupingMode,
-                transitionSpec = {
-                    fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(150))
-                },
-                label = "modeCardTransition"
-            ) { mode ->
-                when (mode) {
-                    GroupingMode.LEAD -> LeadPackContent(
+            // 3. Swappable Horizontal Pager (Gesture-Driven PageView)
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(370.dp)
+            ) { page ->
+                when (page) {
+                    0 -> OpenMeshContent(
+                        selectedChannel = uiState.rideChannel,
+                        onSelectChannel = { ch ->
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onEvent(IntercomUiEvent.SaveRideChannel(ch))
+                        }
+                    )
+                    1 -> LeadPackContent(
                         channel = uiState.rideChannel,
                         callsign = uiState.callsign,
                         hotspotSsid = uiState.hotspotSsid,
@@ -152,26 +194,30 @@ fun RideStagingPage(
                         riderCount = uiState.riders.size,
                         onToggleHotspot = { onEvent(IntercomUiEvent.ToggleHotspotClicked) }
                     )
-                    GroupingMode.JOIN -> JoinPackContent(
+                    2 -> JoinPackContent(
                         rideChannel = uiState.rideChannel,
                         meshState = uiState.meshState,
                         onScanQr = onScanQr
                     )
-                    GroupingMode.OPEN_MESH -> OpenMeshContent(
-                        selectedChannel = uiState.rideChannel,
-                        onSelectChannel = { ch ->
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onEvent(IntercomUiEvent.SaveRideChannel(ch))
-                        }
-                    )
                 }
             }
 
-            // Bottom clearance for pinned action bar
-            Spacer(modifier = Modifier.height(100.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 4. Transmission Mode Selector (PTT / TOGGLE / ALWAYS ON)
+            TransmissionModeSection(
+                selectedMode = uiState.selectedMode,
+                onSelectMode = { mode ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onEvent(IntercomUiEvent.ModeChanged(mode))
+                }
+            )
+
+            // Clearance for bottom pinned button
+            Spacer(modifier = Modifier.height(96.dp))
         }
 
-        // 4. Bottom-Pinned Hero Action Bar
+        // 5. Bottom-Pinned Hero Action Bar
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -187,18 +233,203 @@ fun RideStagingPage(
             ) {
                 PrecisionActionButton(
                     text = "START INTERCOM",
-                    subtext = when (uiState.groupingMode) {
-                        GroupingMode.LEAD -> "BROADCASTING LEAD PACK // CH 0${uiState.rideChannel}"
-                        GroupingMode.JOIN -> "AUTO-SYNC WITH LEAD // CH 0${uiState.rideChannel}"
-                        GroupingMode.OPEN_MESH -> "ENGAGE OPEN MESH // CH 0${uiState.rideChannel}"
+                    subtext = when (pagerState.currentPage) {
+                        0 -> "ENGAGE OPEN MESH // CH 0${uiState.rideChannel}"
+                        1 -> "BROADCASTING LEAD PACK // CH 0${uiState.rideChannel}"
+                        2 -> "AUTO-SYNC WITH LEAD // CH 0${uiState.rideChannel}"
+                        else -> "ENGAGE MESH"
                     },
-                    isOnline = uiState.groupingMode == GroupingMode.LEAD && uiState.isHotspotActive,
+                    isOnline = pagerState.currentPage == 1 && uiState.isHotspotActive,
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onEvent(IntercomUiEvent.EngageIntercom)
                     }
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun BalancedSegmentedTabs(
+    selectedPage: Int,
+    onSelectPage: (Int) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(46.dp),
+        color = DarkSurface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, BorderSubtle)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val tabs = listOf("OPEN MESH", "LEAD PACK", "JOIN PACK")
+            tabs.forEachIndexed { index, title ->
+                val isSelected = selectedPage == index
+                val bgColor by animateColorAsState(
+                    targetValue = if (isSelected) DarkSurfaceElevated else Color.Transparent,
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    label = "tabBg"
+                )
+                val textColor by animateColorAsState(
+                    targetValue = if (isSelected) TextPrimary else TextMuted,
+                    label = "tabText"
+                )
+
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(9.dp))
+                        .clickable { onSelectPage(index) },
+                    color = bgColor,
+                    shape = RoundedCornerShape(9.dp),
+                    border = if (isSelected) BorderStroke(1.dp, BorderFocus) else null
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = title,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
+                            letterSpacing = 0.5.sp,
+                            color = textColor
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TransmissionModeSection(
+    selectedMode: IntercomMode,
+    onSelectMode: (IntercomMode) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "VOICE TRIGGER",
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextMuted,
+                letterSpacing = 1.sp
+            )
+
+            Text(
+                text = when (selectedMode) {
+                    IntercomMode.PUSH_TO_TALK -> "HOLD BUTTON TO TALK"
+                    IntercomMode.TOGGLE -> "TAP TO LATCH / UNMUTE"
+                    IntercomMode.ALWAYS_ON -> "CONTINUOUS OPEN INTERCOM"
+                },
+                fontFamily = FontFamily.Monospace,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = AccentCyan
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp),
+            color = DarkSurface,
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, BorderSubtle)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                VoiceModePill(
+                    label = "PTT",
+                    icon = Icons.Default.TouchApp,
+                    isSelected = selectedMode == IntercomMode.PUSH_TO_TALK,
+                    onClick = { onSelectMode(IntercomMode.PUSH_TO_TALK) },
+                    modifier = Modifier.weight(1f)
+                )
+                VoiceModePill(
+                    label = "TOGGLE",
+                    icon = Icons.Default.Mic,
+                    isSelected = selectedMode == IntercomMode.TOGGLE,
+                    onClick = { onSelectMode(IntercomMode.TOGGLE) },
+                    modifier = Modifier.weight(1f)
+                )
+                VoiceModePill(
+                    label = "ALWAYS ON",
+                    icon = Icons.AutoMirrored.Filled.VolumeUp,
+                    isSelected = selectedMode == IntercomMode.ALWAYS_ON,
+                    onClick = { onSelectMode(IntercomMode.ALWAYS_ON) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VoiceModePill(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val bgColor by animateColorAsState(
+        targetValue = if (isSelected) TextPrimary else Color.Transparent,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "modeBg"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (isSelected) DarkBackground else TextMuted,
+        label = "modeColor"
+    )
+
+    Surface(
+        modifier = modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onClick() },
+        color = bgColor,
+        shape = RoundedCornerShape(8.dp),
+        border = if (isSelected) null else BorderStroke(1.dp, Color.Transparent)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
+                color = contentColor
+            )
         }
     }
 }
@@ -223,7 +454,7 @@ private fun TechnicalHeaderBar(
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
                 .clickable { onEditCallsign() }
-                .padding(vertical = 4.dp)
+                .padding(vertical = 2.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -288,84 +519,120 @@ private fun TechnicalHeaderBar(
 }
 
 @Composable
-private fun SegmentedModeSwitcher(
-    selectedMode: GroupingMode,
-    onSelectMode: (GroupingMode) -> Unit
+private fun OpenMeshContent(
+    selectedChannel: Int,
+    onSelectChannel: (Int) -> Unit
 ) {
+    val scrollState = rememberScrollState()
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(48.dp),
+            .height(350.dp),
         color = DarkSurface,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, BorderSubtle)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(4.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            ModeSegmentTab(
-                title = "LEAD PACK",
-                isSelected = selectedMode == GroupingMode.LEAD,
-                onClick = { onSelectMode(GroupingMode.LEAD) },
-                modifier = Modifier.weight(1f)
-            )
-            ModeSegmentTab(
-                title = "JOIN",
-                isSelected = selectedMode == GroupingMode.JOIN,
-                onClick = { onSelectMode(GroupingMode.JOIN) },
-                modifier = Modifier.weight(1f)
-            )
-            ModeSegmentTab(
-                title = "OPEN MESH",
-                isSelected = selectedMode == GroupingMode.OPEN_MESH,
-                onClick = { onSelectMode(GroupingMode.OPEN_MESH) },
-                modifier = Modifier.weight(1f)
-            )
-        }
-    }
-}
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(
+                            text = "OPEN MESH CHANNELS",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted,
+                            letterSpacing = 1.sp
+                        )
+                        Text(
+                            text = "Channel 0$selectedChannel Active",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Black,
+                            color = TextPrimary
+                        )
+                    }
 
-@Composable
-private fun ModeSegmentTab(
-    title: String,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val backgroundColor by animateColorAsState(
-        targetValue = if (isSelected) DarkSurfaceElevated else Color.Transparent,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "segmentBg"
-    )
+                    Surface(
+                        color = DarkSurfaceElevated,
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, BorderFocus)
+                    ) {
+                        Text(
+                            text = "NO PAIRING REQ.",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentGreen,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
 
-    val textColor by animateColorAsState(
-        targetValue = if (isSelected) TextPrimary else TextMuted,
-        label = "segmentText"
-    )
+                Spacer(modifier = Modifier.height(18.dp))
 
-    Surface(
-        modifier = modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable { onClick() },
-        color = backgroundColor,
-        shape = RoundedCornerShape(8.dp),
-        border = if (isSelected) BorderStroke(1.dp, BorderFocus) else null
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = title,
-                fontSize = 12.sp,
-                fontWeight = if (isSelected) FontWeight.Black else FontWeight.SemiBold,
-                letterSpacing = 0.5.sp,
-                color = textColor
-            )
+                Text(
+                    text = "SELECT FREQUENCY",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    color = TextMuted
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(scrollState),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (ch in 1..16) {
+                        val isSelected = ch == selectedChannel
+                        Surface(
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { onSelectChannel(ch) },
+                            color = if (isSelected) TextPrimary else DarkSurfaceElevated,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, if (isSelected) TextPrimary else BorderSubtle)
+                        ) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (ch < 10) "0$ch" else "$ch",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 15.sp,
+                                    color = if (isSelected) DarkBackground else TextPrimary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = DarkSurfaceElevated,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, BorderSubtle)
+            ) {
+                Text(
+                    text = "All riders on Channel 0$selectedChannel talk and listen simultaneously via self-healing peer-to-peer mesh.",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
         }
     }
 }
@@ -394,16 +661,19 @@ private fun LeadPackContent(
     }
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(350.dp),
         color = DarkSurface,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, BorderSubtle)
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Header Row: Hotspot Status
+            // Header: Hotspot State
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -429,7 +699,7 @@ private fun LeadPackContent(
                     Text(
                         text = hotspotSsid ?: "Synkromesh-Lead",
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
@@ -447,12 +717,10 @@ private fun LeadPackContent(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Precision QR Frame (Quiet, clean canvas with 1px border)
+            // Precision QR Frame
             Surface(
                 modifier = Modifier
-                    .size(190.dp)
+                    .size(175.dp)
                     .clip(RoundedCornerShape(12.dp)),
                 color = Color(0xFFF1F5F9),
                 shape = RoundedCornerShape(12.dp),
@@ -468,11 +736,11 @@ private fun LeadPackContent(
                             contentDescription = "Pairing Matrix",
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(10.dp)
+                                .padding(8.dp)
                         )
                     } else {
                         Text(
-                            text = "INITIALIZING MATRIX",
+                            text = "INITIALIZING",
                             fontFamily = FontFamily.Monospace,
                             fontSize = 10.sp,
                             color = Color.Black
@@ -481,18 +749,7 @@ private fun LeadPackContent(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text(
-                text = "Riders tap JOIN and scan this code to link mesh & audio",
-                fontSize = 12.sp,
-                color = TextSecondary,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Technical Telemetry Footer
+            // Live Telemetry Footer
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -502,14 +759,14 @@ private fun LeadPackContent(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "CHANNEL 0$channel",
+                    text = "CH 0$channel",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextMuted
                 )
                 Text(
-                    text = "$riderCount RIDERS IN PACK",
+                    text = "$riderCount RIDERS JOINED",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -527,20 +784,41 @@ private fun JoinPackContent(
     onScanQr: () -> Unit
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(350.dp),
         color = DarkSurface,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, BorderSubtle)
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "JOIN PACK INTERCOM",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextMuted,
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Scan the Lead Rider's pairing matrix to instantly join their private Wi-Fi mesh and sync channel.",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+            }
+
             // Big Technical Scanner Trigger
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(84.dp)
+                    .height(96.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .clickable { onScanQr() },
                 color = DarkSurfaceElevated,
@@ -557,7 +835,7 @@ private fun JoinPackContent(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(48.dp)
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(DarkSurface),
                             contentAlignment = Alignment.Center
@@ -566,21 +844,21 @@ private fun JoinPackContent(
                                 imageVector = Icons.Default.QrCodeScanner,
                                 contentDescription = null,
                                 tint = TextPrimary,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(14.dp))
                         Column {
                             Text(
                                 text = "SCAN LEAD QR",
-                                fontSize = 15.sp,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 0.5.sp,
                                 color = TextPrimary
                             )
                             Text(
-                                text = "Instant Zero-Permission Setup",
-                                fontSize = 12.sp,
+                                text = "Zero-Permission Instant Scan",
+                                fontSize = 11.sp,
                                 color = TextMuted
                             )
                         }
@@ -595,9 +873,7 @@ private fun JoinPackContent(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Technical Telemetry Footer
+            // Telemetry Footer
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -608,7 +884,7 @@ private fun JoinPackContent(
             ) {
                 Column {
                     Text(
-                        text = "SYNCED CHANNEL",
+                        text = "LAST SYNCED",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp,
                         color = TextMuted
@@ -616,7 +892,7 @@ private fun JoinPackContent(
                     Text(
                         text = "CHANNEL 0$rideChannel",
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
@@ -638,73 +914,6 @@ private fun JoinPackContent(
                     }
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun OpenMeshContent(
-    selectedChannel: Int,
-    onSelectChannel: (Int) -> Unit
-) {
-    val scrollState = rememberScrollState()
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = DarkSurface,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, BorderSubtle)
-    ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            Text(
-                text = "PUBLIC FREQUENCIES",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextMuted,
-                letterSpacing = 1.sp
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(scrollState),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                for (ch in 1..16) {
-                    val isSelected = ch == selectedChannel
-                    Surface(
-                        modifier = Modifier
-                            .size(50.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onSelectChannel(ch) },
-                        color = if (isSelected) TextPrimary else DarkSurfaceElevated,
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, if (isSelected) TextPrimary else BorderSubtle)
-                    ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (ch < 10) "0$ch" else "$ch",
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 15.sp,
-                                color = if (isSelected) DarkBackground else TextPrimary
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = "Ad-hoc open mesh without host authentication",
-                fontSize = 12.sp,
-                color = TextSecondary
-            )
         }
     }
 }
