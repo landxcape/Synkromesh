@@ -17,7 +17,6 @@ import androidx.core.app.NotificationCompat
 import com.landxcape.synkromesh.R
 import com.landxcape.synkromesh.data.datasource.audio.AudioToneFeedbackGenerator
 import com.landxcape.synkromesh.data.datasource.audio.FeedbackTone
-import com.landxcape.synkromesh.data.datasource.local.PreferencesDataSource
 import com.landxcape.synkromesh.domain.model.MeshState
 import com.landxcape.synkromesh.domain.repository.AudioEngineRepository
 import com.landxcape.synkromesh.domain.repository.BluetoothScoRepository
@@ -29,7 +28,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -47,9 +45,6 @@ class IntercomForegroundService : Service() {
 
     @Inject
     lateinit var meshNetworkRepository: MeshNetworkRepository
-
-    @Inject
-    lateinit var preferencesDataSource: PreferencesDataSource
 
     @Inject
     lateinit var headsetMediaButtonManager: HeadsetMediaButtonManager
