@@ -238,12 +238,20 @@ fun ConnectionSetupSheet(
                                         color = TextPrimary
                                     )
                                 }
-                                Text(
-                                    text = "${rider.formattedDistance} • ${rider.relativePosition ?: "Direct"}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = AccentCyan
-                                )
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "${rider.bearingArrow} ${rider.formattedDistance} • ${rider.relativePosition ?: "Direct"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AccentCyan
+                                    )
+                                    Text(
+                                        text = "🏎️ ${rider.formattedSpeed}  ⛰️ ${rider.formattedAltitude}  🔋 ${rider.formattedBattery}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextSecondary,
+                                        fontSize = 10.sp
+                                    )
+                                }
                             }
                         }
                     }

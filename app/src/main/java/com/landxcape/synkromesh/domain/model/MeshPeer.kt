@@ -10,8 +10,10 @@ data class MeshPeer(
     val lastSeenTimestampMs: Long = System.currentTimeMillis(),
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val altitudeMeters: Double? = null,
     val speedKmh: Float? = null,
     val bearingDegrees: Float? = null,
     val estimatedDistanceMeters: Float? = null,
-    val relativeBearingDegrees: Float? = null
+    val relativeBearingDegrees: Float? = null,
+    val batteryPercent: Int? = null
 )

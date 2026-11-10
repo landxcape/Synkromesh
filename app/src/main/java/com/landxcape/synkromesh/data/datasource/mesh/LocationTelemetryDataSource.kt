@@ -5,6 +5,7 @@ import android.content.Context
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.os.BatteryManager
 import android.os.Bundle
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +21,7 @@ data class RiderLocation(
     val altitude: Double = 0.0,
     val speedKmh: Float = 0f,
     val bearingDegrees: Float = 0f,
+    val batteryPercent: Int = 100,
     val timestampMs: Long = System.currentTimeMillis()
 )
 
@@ -29,6 +31,19 @@ class LocationTelemetryDataSource @Inject constructor(
 ) {
     private val locationManager by lazy {
         context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+    }
+
+    private val batteryManager by lazy {
+        context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+    }
+
+    fun getBatteryPercentage(): Int {
+        return try {
+            val capacity = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 100
+            if (capacity in 0..100) capacity else 100
+        } catch (_: Exception) {
+            100
+        }
     }
 
     private val _currentLocation = MutableStateFlow<RiderLocation?>(null)
@@ -46,6 +61,7 @@ class LocationTelemetryDataSource @Inject constructor(
                 altitude = location.altitude,
                 speedKmh = speedKmh,
                 bearingDegrees = bearing,
+                batteryPercent = getBatteryPercentage(),
                 timestampMs = location.time
             )
         }
@@ -76,7 +92,8 @@ class LocationTelemetryDataSource @Inject constructor(
                     longitude = bestLast.longitude,
                     altitude = bestLast.altitude,
                     speedKmh = if (bestLast.hasSpeed()) bestLast.speed * 3.6f else 0f,
-                    bearingDegrees = if (bestLast.hasBearing()) bestLast.bearing else 0f
+                    bearingDegrees = if (bestLast.hasBearing()) bestLast.bearing else 0f,
+                    batteryPercent = getBatteryPercentage()
                 )
             }
 

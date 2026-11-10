@@ -159,7 +159,10 @@ class IntercomViewModel @Inject constructor(
                 latencyMs = 15L,
                 estimatedDistanceMeters = peer.estimatedDistanceMeters,
                 relativePosition = relLabel,
-                relativeBearingDegrees = peer.relativeBearingDegrees
+                relativeBearingDegrees = peer.relativeBearingDegrees,
+                altitudeMeters = peer.altitudeMeters,
+                speedKmh = peer.speedKmh,
+                batteryPercent = peer.batteryPercent
             )
         }
 

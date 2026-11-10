@@ -978,12 +978,35 @@ private fun RiderItemRow(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         SignalStrengthBars(dbm = rider.signalStrengthDbm)
                         Spacer(modifier = Modifier.width(6.dp))
-                        // Real-time Distance & Bearing
+                        // Real-time Distance, Bearing & Arrow
                         Text(
-                            text = "${rider.formattedDistance} • ${rider.relativePosition ?: "Direct"} (${rider.signalStrengthDbm} dBm)",
+                            text = "${rider.bearingArrow} ${rider.formattedDistance} • ${rider.relativePosition ?: "Direct"} (${rider.signalStrengthDbm} dBm)",
                             color = AccentCyan,
                             fontWeight = FontWeight.Medium,
                             fontSize = 11.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "🏎️ ${rider.formattedSpeed}",
+                            color = TextSecondary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Normal
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "⛰️ ${rider.formattedAltitude}",
+                            color = TextSecondary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Normal
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "🔋 ${rider.formattedBattery}",
+                            color = if ((rider.batteryPercent ?: 100) <= 20) AccentRed else TextSecondary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Normal
                         )
                     }
                 }

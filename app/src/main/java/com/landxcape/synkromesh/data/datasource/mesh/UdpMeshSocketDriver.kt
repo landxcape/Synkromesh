@@ -25,7 +25,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class UdpMeshSocketDriver @Inject constructor() {
+class UdpMeshSocketDriver @Inject constructor(
+    private val locationDataSource: LocationTelemetryDataSource
+) {
 
     companion object {
         const val UDP_PORT = 50005
@@ -112,8 +114,28 @@ class UdpMeshSocketDriver @Inject constructor() {
         sendDatagram(PACKET_TYPE_AUDIO, audioPacket.sequenceNumber, audioPacket.payload)
     }
 
-    fun sendHeartbeat(): Result<Unit> = runCatching {
-        sendDatagram(PACKET_TYPE_HEARTBEAT, 0L, ByteArray(0))
+    fun sendHeartbeat(
+        lat: Double? = null,
+        lon: Double? = null,
+        alt: Double? = null,
+        speedKmh: Float? = null,
+        bearingDegrees: Float? = null,
+        batteryPercent: Int? = null
+    ): Result<Unit> = runCatching {
+        if (lat != null && lon != null) {
+            val telemetryBuffer = ByteBuffer.allocate(33).apply {
+                order(ByteOrder.BIG_ENDIAN)
+                putDouble(lat)
+                putDouble(lon)
+                putDouble(alt ?: 0.0)
+                putFloat(speedKmh ?: 0f)
+                putFloat(bearingDegrees ?: 0f)
+                put((batteryPercent ?: 100).toByte())
+            }
+            sendDatagram(PACKET_TYPE_HEARTBEAT, 0L, telemetryBuffer.array())
+        } else {
+            sendDatagram(PACKET_TYPE_HEARTBEAT, 0L, ByteArray(0))
+        }
     }
 
     private fun sendDatagram(type: Byte, seq: Long, payload: ByteArray) {
@@ -177,8 +199,54 @@ class UdpMeshSocketDriver @Inject constructor() {
 
         val isSpeaking = (type == PACKET_TYPE_AUDIO && payloadSize > 0)
 
-        // Update Peer Presence
+        // Telemetry parsing if payload contains at least 33 bytes (lat, lon, alt, speed, bearing, battery)
+        var peerLat: Double? = null
+        var peerLon: Double? = null
+        var peerAlt: Double? = null
+        var peerSpeed: Float? = null
+        var peerBearing: Float? = null
+        var peerBattery: Int? = null
+
+        if (type == PACKET_TYPE_HEARTBEAT && payloadSize >= 33) {
+            try {
+                val tBuf = ByteBuffer.wrap(payload, 0, 33).order(ByteOrder.BIG_ENDIAN)
+                val lat = tBuf.double
+                val lon = tBuf.double
+                val alt = tBuf.double
+                val spd = tBuf.float
+                val brg = tBuf.float
+                val bat = tBuf.get().toInt() and 0xFF
+
+                if (lat != 0.0 || lon != 0.0) {
+                    peerLat = lat
+                    peerLon = lon
+                    peerAlt = alt
+                    peerSpeed = spd
+                    peerBearing = brg
+                    peerBattery = bat
+                }
+            } catch (_: Exception) {}
+        }
+
         val existing = _udpPeersMap[senderDeviceId]
+        val myLoc = locationDataSource.currentLocation.value
+
+        val (calculatedDistance, calculatedRelBearing) = if (myLoc != null && peerLat != null && peerLon != null) {
+            val dist = LocationTelemetryDataSource.calculateHaversineDistanceMeters(
+                myLoc.latitude, myLoc.longitude, peerLat, peerLon
+            )
+            val peerBearingDeg = LocationTelemetryDataSource.calculateBearingDegrees(
+                myLoc.latitude, myLoc.longitude, peerLat, peerLon
+            )
+            val relBearing = LocationTelemetryDataSource.calculateRelativeBearing(
+                myLoc.bearingDegrees, peerBearingDeg
+            )
+            Pair(dist, relBearing)
+        } else {
+            Pair(null, null)
+        }
+
+        // Update Peer Presence & Telemetry
         _udpPeersMap[senderDeviceId] = MeshPeer(
             id = senderDeviceId,
             callsign = senderCallsign,
@@ -187,8 +255,14 @@ class UdpMeshSocketDriver @Inject constructor() {
             signalDbm = -55,
             isTransmitting = isSpeaking,
             lastSeenTimestampMs = System.currentTimeMillis(),
-            estimatedDistanceMeters = existing?.estimatedDistanceMeters ?: LocationTelemetryDataSource.estimateDistanceRssiMeters(-55),
-            relativeBearingDegrees = existing?.relativeBearingDegrees
+            latitude = peerLat ?: existing?.latitude,
+            longitude = peerLon ?: existing?.longitude,
+            altitudeMeters = peerAlt ?: existing?.altitudeMeters,
+            speedKmh = peerSpeed ?: existing?.speedKmh,
+            bearingDegrees = peerBearing ?: existing?.bearingDegrees,
+            batteryPercent = peerBattery ?: existing?.batteryPercent,
+            estimatedDistanceMeters = calculatedDistance ?: existing?.estimatedDistanceMeters ?: LocationTelemetryDataSource.estimateDistanceRssiMeters(-55),
+            relativeBearingDegrees = calculatedRelBearing ?: existing?.relativeBearingDegrees
         )
         _udpPeersFlow.value = _udpPeersMap.values.toList()
 

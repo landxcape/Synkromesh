@@ -200,8 +200,10 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
         if (parts.size >= 4) {
             val peerLat = parts[0].toDoubleOrNull() ?: return
             val peerLon = parts[1].toDoubleOrNull() ?: return
-            val speed = parts[2].toFloatOrNull() ?: 0f
-            val bearing = parts[3].toFloatOrNull() ?: 0f
+            val peerAlt = if (parts.size >= 5) parts[2].toDoubleOrNull() else null
+            val speed = if (parts.size >= 5) parts[3].toFloatOrNull() ?: 0f else parts[2].toFloatOrNull() ?: 0f
+            val bearing = if (parts.size >= 5) parts[4].toFloatOrNull() ?: 0f else parts[3].toFloatOrNull() ?: 0f
+            val battery = if (parts.size >= 6) parts[5].toIntOrNull() else null
 
             val myLoc = locationDataSource.currentLocation.value
             val (dist, relBearing) = if (myLoc != null) {
@@ -223,8 +225,10 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
             _peersMap[endpointId] = existing.copy(
                 latitude = peerLat,
                 longitude = peerLon,
+                altitudeMeters = peerAlt ?: existing.altitudeMeters,
                 speedKmh = speed,
                 bearingDegrees = bearing,
+                batteryPercent = battery ?: existing.batteryPercent,
                 estimatedDistanceMeters = dist ?: existing.estimatedDistanceMeters,
                 relativeBearingDegrees = relBearing,
                 lastSeenTimestampMs = System.currentTimeMillis()
@@ -284,9 +288,16 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
         locationDataSource.startLocationUpdates()
     }
 
-    fun broadcastTelemetry(lat: Double, lon: Double, speedKmh: Float, bearingDegrees: Float): Result<Unit> = runCatching {
+    fun broadcastTelemetry(
+        lat: Double,
+        lon: Double,
+        alt: Double = 0.0,
+        speedKmh: Float = 0f,
+        bearingDegrees: Float = 0f,
+        batteryPercent: Int = 100
+    ): Result<Unit> = runCatching {
         if (_peersMap.isEmpty()) return Result.success(Unit)
-        val payloadStr = "$TELEMETRY_PREFIX$lat,$lon,$speedKmh,$bearingDegrees"
+        val payloadStr = "$TELEMETRY_PREFIX$lat,$lon,$alt,$speedKmh,$bearingDegrees,$batteryPercent"
         val payload = Payload.fromBytes(payloadStr.toByteArray(StandardCharsets.UTF_8))
         val endpoints = _peersMap.keys.toList()
         client.sendPayload(endpoints, payload)
@@ -294,7 +305,7 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
 
     private fun broadcastCurrentLocationToEndpoint(endpointId: String) {
         val loc = locationDataSource.currentLocation.value ?: return
-        val payloadStr = "$TELEMETRY_PREFIX${loc.latitude},${loc.longitude},${loc.speedKmh},${loc.bearingDegrees}"
+        val payloadStr = "$TELEMETRY_PREFIX${loc.latitude},${loc.longitude},${loc.altitude},${loc.speedKmh},${loc.bearingDegrees},${loc.batteryPercent}"
         client.sendPayload(endpointId, Payload.fromBytes(payloadStr.toByteArray(StandardCharsets.UTF_8)))
     }
 

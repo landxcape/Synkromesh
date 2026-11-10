@@ -96,12 +96,24 @@ class MeshNetworkRepositoryImpl @Inject constructor(
             }
         }
 
-        // 4. Periodic UDP presence beacon (Every 1.5s so riders appear instantly on Wi-Fi/Hotspot)
+        // 4. Periodic UDP presence beacon & telemetry (Every 1.5s so riders appear instantly on Wi-Fi/Hotspot)
         heartbeatJob?.cancel()
         heartbeatJob = meshScope.launch {
             while (true) {
                 delay(1500L)
-                udpDriver.sendHeartbeat()
+                val loc = locationDataSource.currentLocation.value
+                if (loc != null) {
+                    udpDriver.sendHeartbeat(
+                        lat = loc.latitude,
+                        lon = loc.longitude,
+                        alt = loc.altitude,
+                        speedKmh = loc.speedKmh,
+                        bearingDegrees = loc.bearingDegrees,
+                        batteryPercent = loc.batteryPercent
+                    )
+                } else {
+                    udpDriver.sendHeartbeat()
+                }
             }
         }
 
@@ -109,14 +121,16 @@ class MeshNetworkRepositoryImpl @Inject constructor(
         telemetryBroadcastJob?.cancel()
         telemetryBroadcastJob = meshScope.launch {
             while (true) {
-                delay(2500L)
+                delay(2000L)
                 val loc = locationDataSource.currentLocation.value
                 if (loc != null) {
                     nearbyDriver.broadcastTelemetry(
                         lat = loc.latitude,
                         lon = loc.longitude,
+                        alt = loc.altitude,
                         speedKmh = loc.speedKmh,
-                        bearingDegrees = loc.bearingDegrees
+                        bearingDegrees = loc.bearingDegrees,
+                        batteryPercent = loc.batteryPercent
                     )
                 }
             }
@@ -144,10 +158,13 @@ class MeshNetworkRepositoryImpl @Inject constructor(
     override suspend fun broadcastTelemetry(
         latitude: Double,
         longitude: Double,
+        altitude: Double,
         speedKmh: Float,
-        bearingDegrees: Float
+        bearingDegrees: Float,
+        batteryPercent: Int
     ): Result<Unit> {
-        return nearbyDriver.broadcastTelemetry(latitude, longitude, speedKmh, bearingDegrees)
+        udpDriver.sendHeartbeat(latitude, longitude, altitude, speedKmh, bearingDegrees, batteryPercent)
+        return nearbyDriver.broadcastTelemetry(latitude, longitude, altitude, speedKmh, bearingDegrees, batteryPercent)
     }
 
     override suspend fun startLocalHotspot(): Result<Unit> {
