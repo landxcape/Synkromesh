@@ -237,11 +237,13 @@ class IntercomForegroundService : Service() {
     }
 
     private fun acquireMulticastLock() {
-        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-        multicastLock = wifiManager?.createMulticastLock("Synkromesh::IntercomMulticastLock")?.apply {
-            setReferenceCounted(false)
-            acquire()
-        }
+        try {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            multicastLock = wifiManager?.createMulticastLock("Synkromesh::IntercomMulticastLock")?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (_: Exception) {}
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
