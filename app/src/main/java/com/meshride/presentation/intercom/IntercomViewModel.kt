@@ -2,6 +2,8 @@ package com.meshride.presentation.intercom
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.meshride.data.datasource.audio.AudioToneFeedbackGenerator
+import com.meshride.data.datasource.audio.FeedbackTone
 import com.meshride.domain.model.AudioLevel
 import com.meshride.domain.model.AudioRoutingState
 import com.meshride.domain.model.IntercomMode
@@ -37,7 +39,8 @@ class IntercomViewModel @Inject constructor(
     private val startIntercomSessionUseCase: StartIntercomSessionUseCase,
     private val stopIntercomSessionUseCase: StopIntercomSessionUseCase,
     private val observeAudioLevelUseCase: ObserveAudioLevelUseCase,
-    private val toggleLoopbackUseCase: ToggleLoopbackUseCase
+    private val toggleLoopbackUseCase: ToggleLoopbackUseCase,
+    private val audioToneFeedbackGenerator: AudioToneFeedbackGenerator
 ) : ViewModel() {
 
     private val _errorFlow = MutableStateFlow<String?>(null)
@@ -99,7 +102,10 @@ class IntercomViewModel @Inject constructor(
     }
 
     private suspend fun onToggleMute() {
-        toggleMicrophoneMuteUseCase().onFailure { err ->
+        toggleMicrophoneMuteUseCase().onSuccess { isMuted ->
+            val tone = if (isMuted) FeedbackTone.MIC_MUTED else FeedbackTone.MIC_OPEN
+            audioToneFeedbackGenerator.playFeedbackTone(tone)
+        }.onFailure { err ->
             _errorFlow.value = "Failed to toggle mute: ${err.message}"
         }
     }

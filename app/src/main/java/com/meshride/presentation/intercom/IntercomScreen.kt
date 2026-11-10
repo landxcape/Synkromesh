@@ -137,7 +137,9 @@ fun IntercomScreen(
                     state = uiState.transmissionState,
                     isLoopbackActive = uiState.isLoopbackActive
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+                AudioRoutingBadge(audioRouting = uiState.audioRouting)
+                Spacer(modifier = Modifier.height(10.dp))
                 ModeSelectorGroup(
                     selectedMode = uiState.selectedMode,
                     onModeSelected = { onEvent(IntercomUiEvent.ModeChanged(it)) }
@@ -304,6 +306,46 @@ private fun TransmissionBanner(
             fontSize = 14.sp,
             color = textColor,
             letterSpacing = 1.sp
+        )
+    }
+}
+
+@Composable
+private fun AudioRoutingBadge(audioRouting: AudioRoutingState) {
+    val isSco = audioRouting.isScoConnected
+    val deviceName = audioRouting.connectedDeviceName ?: "Phone Internal Audio"
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(DarkSurfaceElevated)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = if (isSco) Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
+                contentDescription = "Routing",
+                tint = if (isSco) AccentCyan else TextMuted,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = deviceName,
+                style = MaterialTheme.typography.bodyLarge,
+                fontSize = 13.sp,
+                color = TextPrimary
+            )
+        }
+
+        Text(
+            text = if (isSco) "HELMET SCO" else "SPEAKER",
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            color = if (isSco) AccentCyan else TextMuted,
+            letterSpacing = 0.5.sp
         )
     }
 }
