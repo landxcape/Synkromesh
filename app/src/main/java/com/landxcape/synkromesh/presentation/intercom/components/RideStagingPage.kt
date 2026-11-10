@@ -111,9 +111,9 @@ fun RideStagingPage(
     }
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { 4 })
 
-    // Synchronize pager swipe with ViewModel groupingMode
+    // Synchronize pager swipe with ViewModel groupingMode ONLY when page settles smoothly
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }.collect { page ->
+        snapshotFlow { pagerState.settledPage }.collect { page ->
             val targetMode = when (page) {
                 0, 1 -> GroupingMode.OPEN_MESH
                 2 -> GroupingMode.LEAD
@@ -127,15 +127,17 @@ fun RideStagingPage(
         }
     }
 
-    // Keep pager synced if external state changes groupingMode
+    // Keep pager synced if external state changes groupingMode (e.g. from QR scan) without fighting gesture
     LaunchedEffect(uiState.groupingMode) {
-        val targetIndex = when (uiState.groupingMode) {
-            GroupingMode.OPEN_MESH -> if (pagerState.currentPage == 0) 0 else 1
-            GroupingMode.LEAD -> 2
-            GroupingMode.JOIN -> 3
-        }
-        if (pagerState.currentPage != targetIndex) {
-            pagerState.animateScrollToPage(targetIndex)
+        if (!pagerState.isScrollInProgress) {
+            val targetIndex = when (uiState.groupingMode) {
+                GroupingMode.OPEN_MESH -> if (pagerState.currentPage == 0) 0 else 1
+                GroupingMode.LEAD -> 2
+                GroupingMode.JOIN -> 3
+            }
+            if (pagerState.currentPage != targetIndex) {
+                pagerState.animateScrollToPage(targetIndex)
+            }
         }
     }
 
@@ -221,11 +223,7 @@ fun RideStagingPage(
             }
 
             // Clearance for bottom pinned launch action button
-            Spacer(
-                modifier = Modifier
-                    .navigationBarsPadding()
-                    .height(82.dp)
-            )
+            Spacer(modifier = Modifier.height(78.dp))
         }
 
         // 4. Bottom-Pinned Hero Action Console
@@ -437,19 +435,13 @@ private fun AudioHardwareContent(
 ) {
     val scrollState = rememberScrollState()
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = DarkSurface,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, BorderSubtle)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(vertical = 4.dp)
+            .verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-                .verticalScroll(scrollState),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
             // Title & Preflight Status
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -682,7 +674,6 @@ private fun AudioHardwareContent(
                 )
             }
         }
-    }
 }
 
 @Composable
@@ -692,19 +683,13 @@ private fun OpenMeshContent(
 ) {
     val scrollState = rememberScrollState()
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = DarkSurface,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, BorderSubtle)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(vertical = 4.dp)
+            .verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(18.dp)
-                .verticalScroll(scrollState),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
             Column {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -770,7 +755,7 @@ private fun OpenMeshContent(
                                 Surface(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(48.dp)
+                                        .height(54.dp)
                                         .clip(RoundedCornerShape(10.dp))
                                         .clickable { onSelectChannel(ch) },
                                     color = if (isSelected) TextPrimary else DarkSurfaceElevated,
@@ -812,7 +797,6 @@ private fun OpenMeshContent(
                 )
             }
         }
-    }
 }
 
 @Composable
@@ -841,20 +825,14 @@ private fun LeadPackContent(
         RideQrManager.generateQrBitmap(qrData, sizePx = 720)
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = DarkSurface,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, BorderSubtle)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(vertical = 4.dp)
+            .verticalScroll(scrollState),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(18.dp)
-                .verticalScroll(scrollState),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
             // Header: Hotspot State
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -961,7 +939,6 @@ private fun LeadPackContent(
                 )
             }
         }
-    }
 }
 
 @Composable
@@ -972,20 +949,14 @@ private fun JoinPackContent(
 ) {
     val scrollState = rememberScrollState()
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = DarkSurface,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, BorderSubtle)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(vertical = 4.dp)
+            .verticalScroll(scrollState),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(18.dp)
-                .verticalScroll(scrollState),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = "JOIN PACK INTERCOM",
@@ -1105,7 +1076,6 @@ private fun JoinPackContent(
                 )
             }
         }
-    }
 }
 
 @Composable

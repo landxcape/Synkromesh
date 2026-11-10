@@ -173,7 +173,7 @@ fun LiveCockpitPage(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 // Docked 3-Way Mode Micro-Selector
                 CockpitModeSelector(
