@@ -5,7 +5,7 @@
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-purple.svg)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-brightgreen.svg)](https://developer.android.com/jetpack/compose)
 
-**Synkromesh** converts budget motorcycle Bluetooth helmet headsets (EJEAS, FreedConn, BT-S2, standard Bluetooth add-on speakers/mics) into a low-latency, full-duplex intercom mesh without requiring expensive (\$300+) proprietary systems (Cardo/Sena) or cellular data.
+Synkromesh is an offline peer-to-peer audio intercom application for Android. It routes audio between devices over local Wi-Fi without cellular data or internet connectivity, supporting Bluetooth SCO headsets and helmet communicators.
 
 ---
 
@@ -17,66 +17,60 @@
                       │        (Android 8.0+ / Target SDK 35)         │
                       └───────┬───────────────────────────────┬───────┘
                               │                               │
-             Bluetooth SCO / HFP Profile            Offline P2P Mesh Network
+             Bluetooth SCO / HFP Profile            Local Offline Network
                               │                               │
             ┌─────────────────┴───────────────┐  ┌────────────┴─────────────────┐
-            │ Helmet Headset (Mic & Speakers) │  │  Google Nearby Connections   │
-            │   • EJEAS V6 / FreedConn T-COM  │  │        (P2P_CLUSTER)         │
-            │   • BT-S2 / Cardo / Sena        │  │              +               │
-            │   • Headset Button Interception │  │ UDP Broadcast (Port 50005)   │
-            └─────────────────────────────────┘  └────────────┬─────────────────┘
-                                                              │
-                                                     Bike-to-Bike Range
-                                                  (Up to 100+ meters outdoor)
+            │ Helmet Headset / Audio Device   │  │  Google Nearby Connections   │
+            │   • Bluetooth SCO Audio Routing │  │        (P2P_CLUSTER)         │
+            │   • Media Button Handling       │  │              +               │
+            │   • Built-in Mic / Speaker      │  │ UDP Broadcast (Port 50005)   │
+            └─────────────────────────────────┘  └──────────────────────────────┘
 ```
 
 ---
 
-## Key Features
+## Technical Specifications
 
-- **100% Full-Duplex Audio Engine:**
-  - Native **Opus Codec** (RFC 6716) wideband voice at 16 kHz / 24 kHz.
-  - Ultra-low latency: 20ms audio frame sizes with native Packet Loss Concealment (PLC).
-  - Independent transmission and reception pipelines; incoming audio is **never** blocked or muted while speaking.
-- **Zero-Config Offline Mesh:**
-  - Automated bike discovery and clustering over BLE + Wi-Fi Direct using Google Nearby Connections (`P2P_CLUSTER`).
-  - Fallback local UDP multicast/broadcast socket on port `50005`.
-  - Works completely offline in mountain passes, canyons, and rural roads with **zero cell service or mobile data**.
-- **Real-Time Rider Radar & Distance Estimation:**
-  - Hybrid distance calculation: High-precision GPS mesh telemetry via Haversine distance formula + relative compass bearing (`Ahead`, `Behind`, `Left`, `Right`).
-  - Automatic RF path-loss fallback (BLE/Wi-Fi RSSI in dBm) when in tunnels or before satellite acquisition.
-- **3 Glove-Friendly Transmission Modes:**
-  - **Push-To-Talk (PTT):** Touch-and-hold the oversized center button or hold the helmet button.
-  - **Toggle (Latch):** Tap once to open microphone uplink, tap again to mute.
-  - **Always-On (Open Intercom):** Hands-free continuous transmission filtered by Voice Activity Detection (VAD) and noise gating to suppress exhaust/wind rumble.
-- **Pocket Resilience & Battery Endurance:**
-  - Runs inside an Android Foreground Service with dual locks (`PARTIAL_WAKE_LOCK` + `WIFI_MODE_FULL_LOW_LATENCY`).
-  - Audio focus ducking for navigation prompts (Google Maps, Waze).
-  - Headset button interception (`MediaSessionCompat`) to toggle mic mute while phone is safely zipped in a riding jacket.
-- **Android 15 & 16 KB Page-Size Ready:**
-  - Fully compliant with Android 15 16 KB memory page alignment (`-Wl,-z,max-page-size=16384`).
-  - Native library (`libsynkromesh_audio.so`) loaded directly uncompressed from APK for maximum memory efficiency.
+- **Audio Pipeline:**
+  - Opus codec (RFC 6716) at 16 kHz / 24 kHz / 48 kHz.
+  - 20ms frame sizes with native Packet Loss Concealment (PLC).
+  - Isolated transmission (Tx) and reception (Rx) threads for full-duplex operation.
+  - Hardware echo cancellation (AEC) and noise suppression (NS) via Android audio effects where available.
+- **Networking:**
+  - P2P discovery and clustering via Google Nearby Connections (`P2P_CLUSTER`).
+  - Local-only Hotspot / Wi-Fi UDP datagram broadcast on port `50005`.
+  - Operates entirely offline without internet, cell towers, or external servers.
+- **Transmission Controls:**
+  - Push-to-Talk (PTT): Hold to transmit audio.
+  - Toggle: Tap once to open audio uplink, tap again to mute.
+  - Continuous (Always-On): Continuous transmission with voice activity detection (VAD).
+- **Bluetooth & Background Service:**
+  - Bluetooth SCO (Hands-Free Profile) mic and speaker routing.
+  - Android Foreground Service with `PARTIAL_WAKE_LOCK` and Wi-Fi low-latency lock.
+  - Media button handling via `MediaSessionCompat` to toggle transmission from connected headsets.
+  - Audio focus management with ducking for navigation prompts.
+- **Compatibility & Standards:**
+  - Minimum SDK: Android 8.0 (API 26); Target SDK: Android 15 (API 35).
+  - 16 KB memory page size alignment (`-Wl,-z,max-page-size=16384`).
+  - Native library (`libsynkromesh_audio.so`) built with CMake and Android NDK 27.
 
 ---
 
-## Hardware Compatibility Matrix
+## Device Support
 
-| Category | Tested Models | Connectivity |
-| :--- | :--- | :--- |
-| **Budget Helmet Headsets** | EJEAS V6 Pro, E6, V4 | Bluetooth SCO / Handsfree Profile (HFP) |
-| **Mid-Tier Helmet Headsets** | FreedConn T-COM SC, T-MAX, FX | Bluetooth SCO / Handsfree Profile (HFP) |
-| **Classic Motorcycle Units** | BT-S2, BT-S3 | Bluetooth SCO / Handsfree Profile (HFP) |
-| **Premium Systems** | Cardo Packtalk, Freecom / Sena 50S, 30K | Paired as standard Bluetooth Phone Headset |
-| **Standard Audio Devices** | AirPods, Galaxy Buds, wired 3.5mm / USB-C | Handled automatically via Android Audio Router |
+Any audio input/output device supported by Android Bluetooth SCO or standard audio routing:
+- Motorcycle helmet communicators (EJEAS, FreedConn, BT-S2, Cardo, Sena, etc.)
+- Standard Bluetooth headsets and earbuds
+- Built-in device microphone and speaker
 
 ---
 
 ## Building from Source
 
 ### Prerequisites
-- **Android Studio Ladybug (2024.2+)** or command-line SDK tools.
-- **Android NDK:** Version 27+ (or CMake 3.22.1+).
-- **JDK:** OpenJDK 21.
+- Android Studio 2024.2+ or Android SDK command-line tools.
+- Android NDK: 27.0.12077973 (or CMake 3.22.1+).
+- JDK: OpenJDK 21.
 
 ### 1. Clone Repository
 ```bash
@@ -85,27 +79,22 @@ cd Synkromesh
 ```
 
 ### 2. Configure Keystore (Optional for Release)
-Copy the example properties file and fill in your signing credentials:
+Copy the example properties file and provide your signing credentials:
 ```bash
 cp keystore.properties.example keystore.properties
 ```
 
-### 3. Build Release APK
+### 3. Build APKs
 ```bash
-./gradlew assembleRelease
-```
-The output APK is located at:
-```text
-app/build/outputs/apk/release/app-release.apk
-```
+# Debug build:
+./gradlew assembleDebug
 
-### 4. Install & Launch on Device
-```bash
-./gradlew installRelease && adb shell am start -n com.landxcape.synkromesh/.presentation.MainActivity
+# Release build (generates ABI-split APKs in app/build/outputs/apk/release/):
+./gradlew assembleRelease
 ```
 
 ---
 
 ## License
 
-Synkromesh is free and open-source software licensed under the **GNU General Public License v3.0 (GPLv3)**. See [LICENSE](LICENSE) for details.
+Synkromesh is free software licensed under the **GNU General Public License v3.0 (GPLv3)**. See [LICENSE](LICENSE) for details.
