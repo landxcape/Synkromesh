@@ -4,6 +4,9 @@ import android.annotation.SuppressLint
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
 import com.landxcape.synkromesh.domain.model.AudioLevel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +33,10 @@ class AudioCaptureDriver @Inject constructor() {
     private var captureJob: Job? = null
     private var audioRecord: AudioRecord? = null
 
+    private var noiseSuppressor: NoiseSuppressor? = null
+    private var automaticGainControl: AutomaticGainControl? = null
+    private var echoCanceler: AcousticEchoCanceler? = null
+
     private val _pcmFrameFlow = MutableSharedFlow<ShortArray>(extraBufferCapacity = 8)
     val pcmFrameFlow: SharedFlow<ShortArray> = _pcmFrameFlow.asSharedFlow()
 
@@ -50,18 +57,42 @@ class AudioCaptureDriver @Inject constructor() {
         )
         val bufferSize = max(minBufferSize, OpusCodecEngine.FRAME_SIZE_SAMPLES * 2 * 4)
 
-        val record = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            OpusCodecEngine.SAMPLE_RATE,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            bufferSize
-        )
+        val audioFormat = AudioFormat.Builder()
+            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+            .setSampleRate(OpusCodecEngine.SAMPLE_RATE)
+            .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+            .build()
+
+        val record = AudioRecord.Builder()
+            .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+            .setAudioFormat(audioFormat)
+            .setBufferSizeInBytes(bufferSize)
+            .build()
 
         if (record.state != AudioRecord.STATE_INITIALIZED) {
             record.release()
             error("AudioRecord failed to initialize")
         }
+
+        // Attach Hardware DSP Acoustic Effects
+        val sessionId = record.audioSessionId
+        try {
+            if (NoiseSuppressor.isAvailable()) {
+                noiseSuppressor = NoiseSuppressor.create(sessionId)?.apply { enabled = true }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            if (AutomaticGainControl.isAvailable()) {
+                automaticGainControl = AutomaticGainControl.create(sessionId)?.apply { enabled = true }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            if (AcousticEchoCanceler.isAvailable()) {
+                echoCanceler = AcousticEchoCanceler.create(sessionId)?.apply { enabled = true }
+            }
+        } catch (_: Exception) {}
 
         record.startRecording()
         audioRecord = record
@@ -100,6 +131,14 @@ class AudioCaptureDriver @Inject constructor() {
         _isCapturing.value = false
         captureJob?.cancel()
         captureJob = null
+
+        try { noiseSuppressor?.release() } catch (_: Exception) {}
+        noiseSuppressor = null
+        try { automaticGainControl?.release() } catch (_: Exception) {}
+        automaticGainControl = null
+        try { echoCanceler?.release() } catch (_: Exception) {}
+        echoCanceler = null
+
         audioRecord?.run {
             if (recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 stop()

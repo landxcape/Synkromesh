@@ -27,7 +27,9 @@ Java_com_landxcape_synkromesh_data_datasource_audio_nativebridge_NativeOpus_nati
     opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
     opus_encoder_ctl(enc, OPUS_SET_INBAND_FEC(1));
     opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(15)); // Resilient for motorcycle mesh
-    opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(5));        // Balanced CPU/Quality for mobile
+    opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(10));       // Maximum acoustic fidelity
+    opus_encoder_ctl(enc, OPUS_SET_VBR(1));               // Adaptive bit allocation for clear consonants
+    opus_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT(1));    // Constrained VBR for predictable packet sizes
 
     return reinterpret_cast<jlong>(enc);
 }

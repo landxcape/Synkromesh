@@ -8,11 +8,11 @@ import javax.inject.Singleton
 class OpusCodecEngine @Inject constructor() {
 
     companion object {
-        const val SAMPLE_RATE = 16000
+        const val SAMPLE_RATE = 48000 // 48 kHz Fullband broadcast audio
         const val CHANNELS = 1
         const val FRAME_SIZE_MS = 20
-        const val FRAME_SIZE_SAMPLES = (SAMPLE_RATE * FRAME_SIZE_MS) / 1000 // 320 samples
-        const val BITRATE_BPS = 24000 // 24 kbps wideband voice
+        const val FRAME_SIZE_SAMPLES = (SAMPLE_RATE * FRAME_SIZE_MS) / 1000 // 960 samples
+        const val BITRATE_BPS = 24000 // 24 kbps wideband/fullband voice
         const val MAX_OPUS_PAYLOAD_BYTES = 500
     }
 
