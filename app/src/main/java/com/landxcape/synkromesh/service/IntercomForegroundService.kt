@@ -61,6 +61,7 @@ class IntercomForegroundService : Service() {
     private var peerMonitoringJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     companion object {
         const val CHANNEL_ID = "synkromesh_intercom_channel"
@@ -74,6 +75,7 @@ class IntercomForegroundService : Service() {
         super.onCreate()
         acquireWakeLock()
         acquireWifiLock()
+        acquireMulticastLock()
         createNotificationChannel()
         setupHeadsetButtonInterception()
     }
@@ -124,6 +126,7 @@ class IntercomForegroundService : Service() {
         headsetMediaButtonManager.deactivateMediaSession()
         wakeLock?.let { if (it.isHeld) it.release() }
         wifiLock?.let { if (it.isHeld) it.release() }
+        multicastLock?.let { if (it.isHeld) it.release() }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -246,6 +249,14 @@ class IntercomForegroundService : Service() {
         }
     }
 
+    private fun acquireMulticastLock() {
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        multicastLock = wifiManager?.createMulticastLock("Synkromesh::IntercomMulticastLock")?.apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         peerMonitoringJob?.cancel()
@@ -270,6 +281,9 @@ class IntercomForegroundService : Service() {
             if (it.isHeld) it.release()
         }
         wifiLock?.let {
+            if (it.isHeld) it.release()
+        }
+        multicastLock?.let {
             if (it.isHeld) it.release()
         }
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
