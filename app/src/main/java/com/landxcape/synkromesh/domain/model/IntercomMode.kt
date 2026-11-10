@@ -12,5 +12,8 @@ enum class IntercomMode(val title: String, val description: String) {
     ALWAYS_ON(
         title = "Always-On Intercom",
         description = "Continuous open-mic with VAD/noise gating; simultaneous full duplex"
-    )
+    );
+
+    val displayName: String
+        get() = title
 }

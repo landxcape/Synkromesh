@@ -10,9 +10,10 @@ interface MeshNetworkRepository {
     fun observePeers(): Flow<List<MeshPeer>>
     fun observeIncomingAudioPackets(): Flow<AudioPacket>
 
-    suspend fun startMeshSession(callsign: String): Result<Unit>
+    suspend fun startMeshSession(callsign: String, channel: Int = 1): Result<Unit>
     suspend fun stopMeshSession(): Result<Unit>
     suspend fun broadcastVoicePacket(packet: AudioPacket): Result<Unit>
+    suspend fun broadcastTelemetry(latitude: Double, longitude: Double, speedKmh: Float, bearingDegrees: Float): Result<Unit>
     suspend fun startLocalHotspot(): Result<Unit>
     suspend fun stopLocalHotspot(): Result<Unit>
 }

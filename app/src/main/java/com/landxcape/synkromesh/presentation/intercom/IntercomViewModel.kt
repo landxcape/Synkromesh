@@ -4,7 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.landxcape.synkromesh.data.datasource.audio.AudioToneFeedbackGenerator
 import com.landxcape.synkromesh.data.datasource.audio.FeedbackTone
+import com.landxcape.synkromesh.data.datasource.bluetooth.BluetoothHeadsetDeviceManager
+import com.landxcape.synkromesh.data.datasource.bluetooth.PairedHeadset
 import com.landxcape.synkromesh.data.datasource.local.PreferencesDataSource
+import com.landxcape.synkromesh.data.datasource.mesh.LocationTelemetryDataSource
 import com.landxcape.synkromesh.domain.model.AudioLevel
 import com.landxcape.synkromesh.domain.model.AudioRoutingState
 import com.landxcape.synkromesh.domain.model.IntercomMode
@@ -25,6 +28,8 @@ import com.landxcape.synkromesh.domain.usecase.StopIntercomSessionUseCase
 import com.landxcape.synkromesh.domain.usecase.ToggleLoopbackUseCase
 import com.landxcape.synkromesh.domain.usecase.ToggleMicrophoneMuteUseCase
 import com.landxcape.synkromesh.util.BatteryOptimizationManager
+import com.landxcape.synkromesh.util.HardwarePreflightManager
+import com.landxcape.synkromesh.util.PreflightStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -44,6 +49,8 @@ class IntercomViewModel @Inject constructor(
     private val observePeersUseCase: ObservePeersUseCase,
     private val preferencesDataSource: PreferencesDataSource,
     private val batteryOptimizationManager: BatteryOptimizationManager,
+    private val preflightManager: HardwarePreflightManager,
+    private val bluetoothDeviceManager: BluetoothHeadsetDeviceManager,
     private val setTransmissionModeUseCase: SetTransmissionModeUseCase,
     private val handlePttPressUseCase: HandlePttPressUseCase,
     private val toggleMicrophoneMuteUseCase: ToggleMicrophoneMuteUseCase,
@@ -56,10 +63,16 @@ class IntercomViewModel @Inject constructor(
 
     private val _errorFlow = MutableStateFlow<String?>(null)
     private val _isCallsignDialogOpen = MutableStateFlow(false)
-    private val _isBatteryOptimizationIgnored = MutableStateFlow(batteryOptimizationManager.isIgnoringBatteryOptimizations())
+    private val _isSettingsOpen = MutableStateFlow(false)
+    private val _isConnectionSetupOpen = MutableStateFlow(false)
+    private val _isPermissionSheetVisible = MutableStateFlow(false)
     private val _mutedPeerIds = MutableStateFlow<Set<String>>(emptySet())
 
-    val uiState: StateFlow<IntercomUiState> = combine(
+    init {
+        refreshPreflightAndDevices()
+    }
+
+    private val baseAudioMeshFlow = combine(
         intercomRepository.observeIsSessionActive(),
         intercomRepository.observeIntercomMode(),
         intercomRepository.observeTransmissionState(),
@@ -68,45 +81,101 @@ class IntercomViewModel @Inject constructor(
         meshNetworkRepository.observeMeshState(),
         observePeersUseCase(),
         audioEngineRepository.observeIsLoopbackActive(),
-        observeAudioLevelUseCase(),
-        preferencesDataSource.callsignFlow,
-        _isCallsignDialogOpen,
-        _isBatteryOptimizationIgnored,
-        _mutedPeerIds,
-        _errorFlow
+        observeAudioLevelUseCase()
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
-        val level = args[8] as AudioLevel
-        @Suppress("UNCHECKED_CAST")
-        val peers = args[6] as List<MeshPeer>
-        @Suppress("UNCHECKED_CAST")
-        val mutedPeers = args[12] as Set<String>
-        val mappedRiders = peers.map { peer ->
-            Rider(
-                id = peer.id,
-                callsign = peer.callsign,
-                isLocalUser = peer.isLocal,
-                isTransmitting = peer.isTransmitting,
-                signalStrengthDbm = peer.signalDbm,
-                latencyMs = 15L
-            )
-        }
-        IntercomUiState(
+        BaseAudioMeshState(
             isSessionActive = args[0] as Boolean,
             selectedMode = args[1] as IntercomMode,
             transmissionState = args[2] as TransmissionState,
             isMuted = args[3] as Boolean,
             audioRouting = args[4] as AudioRoutingState,
             meshState = args[5] as MeshState,
-            peers = peers,
-            riders = mappedRiders,
+            peers = args[6] as List<MeshPeer>,
             isLoopbackActive = args[7] as Boolean,
-            micAudioLevel = level.normalizedLevel,
-            callsign = args[9] as String,
-            isCallsignDialogOpen = args[10] as Boolean,
-            isBatteryOptimizationIgnored = args[11] as Boolean,
-            mutedPeerIds = mutedPeers,
-            errorMessage = args[13] as String?
+            micAudioLevel = (args[8] as AudioLevel).normalizedLevel
+        )
+    }
+
+    private val preferencesFlow = combine(
+        preferencesDataSource.callsignFlow,
+        preferencesDataSource.rideChannelFlow,
+        preferencesDataSource.vadThresholdFlow,
+        preferencesDataSource.opusBitrateFlow
+    ) { callsign, channel, vad, bitrate ->
+        UserPreferencesState(callsign, channel, vad, bitrate)
+    }
+
+    private val dialogsAndPreflightFlow = combine(
+        _isCallsignDialogOpen,
+        _isSettingsOpen,
+        _isConnectionSetupOpen,
+        _isPermissionSheetVisible,
+        _mutedPeerIds,
+        _errorFlow,
+        preflightManager.statusFlow,
+        bluetoothDeviceManager.devicesFlow
+    ) { args: Array<Any?> ->
+        @Suppress("UNCHECKED_CAST")
+        DialogsAndPreflightState(
+            isCallsignDialogOpen = args[0] as Boolean,
+            isSettingsOpen = args[1] as Boolean,
+            isConnectionSetupOpen = args[2] as Boolean,
+            isPermissionSheetVisible = args[3] as Boolean,
+            mutedPeerIds = args[4] as Set<String>,
+            errorMessage = args[5] as String?,
+            preflightStatus = args[6] as PreflightStatus,
+            pairedHeadsets = args[7] as List<PairedHeadset>
+        )
+    }
+
+    val uiState: StateFlow<IntercomUiState> = combine(
+        baseAudioMeshFlow,
+        preferencesFlow,
+        dialogsAndPreflightFlow
+    ) { audioMesh, prefs, dialogs ->
+        val mappedRiders = audioMesh.peers.map { peer ->
+            val relLabel = peer.relativeBearingDegrees?.let {
+                LocationTelemetryDataSource.getRelativePositionLabel(it)
+            } ?: if (peer.latitude != null) "GPS Locked" else "RF Proximity"
+
+            Rider(
+                id = peer.id,
+                callsign = peer.callsign,
+                isLocalUser = peer.isLocal,
+                isTransmitting = peer.isTransmitting,
+                signalStrengthDbm = peer.signalDbm,
+                latencyMs = 15L,
+                estimatedDistanceMeters = peer.estimatedDistanceMeters,
+                relativePosition = relLabel,
+                relativeBearingDegrees = peer.relativeBearingDegrees
+            )
+        }
+
+        IntercomUiState(
+            isSessionActive = audioMesh.isSessionActive,
+            selectedMode = audioMesh.selectedMode,
+            transmissionState = audioMesh.transmissionState,
+            isMuted = audioMesh.isMuted,
+            isLoopbackActive = audioMesh.isLoopbackActive,
+            micAudioLevel = audioMesh.micAudioLevel,
+            audioRouting = audioMesh.audioRouting,
+            meshState = audioMesh.meshState,
+            callsign = prefs.callsign,
+            rideChannel = prefs.rideChannel,
+            vadThreshold = prefs.vadThreshold,
+            opusBitrate = prefs.opusBitrate,
+            isCallsignDialogOpen = dialogs.isCallsignDialogOpen,
+            isSettingsOpen = dialogs.isSettingsOpen,
+            isConnectionSetupOpen = dialogs.isConnectionSetupOpen,
+            isPermissionSheetVisible = dialogs.isPermissionSheetVisible,
+            isBatteryOptimizationIgnored = dialogs.preflightStatus.isBatteryOptimizationIgnored,
+            preflightStatus = dialogs.preflightStatus,
+            pairedHeadsets = dialogs.pairedHeadsets,
+            mutedPeerIds = dialogs.mutedPeerIds,
+            peers = audioMesh.peers,
+            riders = mappedRiders,
+            errorMessage = dialogs.errorMessage
         )
     }.stateIn(
         scope = viewModelScope,
@@ -125,13 +194,25 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.ToggleLoopbackClicked -> onToggleLoopback()
                 is IntercomUiEvent.SetCallsignDialogVisible -> _isCallsignDialogOpen.value = event.isVisible
                 is IntercomUiEvent.SaveCallsign -> onSaveCallsign(event.callsign)
+                is IntercomUiEvent.SetSettingsVisible -> _isSettingsOpen.value = event.isVisible
+                is IntercomUiEvent.SetConnectionSetupVisible -> _isConnectionSetupOpen.value = event.isVisible
+                is IntercomUiEvent.SetPermissionSheetVisible -> _isPermissionSheetVisible.value = event.isVisible
+                is IntercomUiEvent.SaveRideChannel -> onSaveChannel(event.channel)
+                is IntercomUiEvent.SaveVadThreshold -> onSaveVadThreshold(event.threshold)
+                is IntercomUiEvent.SaveOpusBitrate -> onSaveOpusBitrate(event.bitrate)
                 is IntercomUiEvent.TogglePeerMute -> onTogglePeerMute(event.peerId)
-                is IntercomUiEvent.RefreshBatteryStatus -> {
-                    _isBatteryOptimizationIgnored.value = batteryOptimizationManager.isIgnoringBatteryOptimizations()
-                }
+                is IntercomUiEvent.RefreshBatteryStatus -> refreshPreflightAndDevices()
+                is IntercomUiEvent.RefreshPreflightAndDevices -> refreshPreflightAndDevices()
                 is IntercomUiEvent.ClearError -> _errorFlow.value = null
             }
         }
+    }
+
+    fun getRequiredPermissions(): List<String> = preflightManager.getRequiredPermissions()
+
+    private fun refreshPreflightAndDevices() {
+        preflightManager.refresh()
+        bluetoothDeviceManager.refreshPairedDevices()
     }
 
     private suspend fun onSaveCallsign(newCallsign: String) {
@@ -142,6 +223,24 @@ class IntercomViewModel @Inject constructor(
             }
         }
         _isCallsignDialogOpen.value = false
+    }
+
+    private suspend fun onSaveChannel(channel: Int) {
+        preferencesDataSource.saveRideChannel(channel)
+        if (uiState.value.isSessionActive) {
+            // Restart mesh on new channel
+            val callsign = preferencesDataSource.callsignFlow.first()
+            meshNetworkRepository.stopMeshSession()
+            meshNetworkRepository.startMeshSession(callsign, channel)
+        }
+    }
+
+    private suspend fun onSaveVadThreshold(threshold: Float) {
+        preferencesDataSource.saveVadThreshold(threshold)
+    }
+
+    private suspend fun onSaveOpusBitrate(bitrate: Int) {
+        preferencesDataSource.saveOpusBitrate(bitrate)
     }
 
     private fun onTogglePeerMute(peerId: String) {
@@ -182,19 +281,27 @@ class IntercomViewModel @Inject constructor(
 
     private suspend fun onToggleSession() {
         val currentState = uiState.value.isSessionActive
-        val result = if (currentState) {
+        if (currentState) {
             meshNetworkRepository.stopMeshSession()
             audioEngineRepository.stopAudioEngine()
             stopIntercomSessionUseCase()
         } else {
+            // Check critical preflight before starting
+            preflightManager.refresh()
+            val status = preflightManager.statusFlow.value
+            if (!status.areCriticalPermissionsGranted || !status.areRadiosEnabled) {
+                _isPermissionSheetVisible.value = true
+                return
+            }
+
             val callsign = preferencesDataSource.callsignFlow.first()
+            val channel = preferencesDataSource.rideChannelFlow.first()
             startIntercomSessionUseCase().onSuccess {
                 audioEngineRepository.startAudioEngine()
-                meshNetworkRepository.startMeshSession(callsign)
+                meshNetworkRepository.startMeshSession(callsign, channel)
+            }.onFailure { err ->
+                _errorFlow.value = "Session failure: ${err.message}"
             }
-        }
-        result.onFailure { err ->
-            _errorFlow.value = "Session failure: ${err.message}"
         }
     }
 
@@ -209,4 +316,34 @@ class IntercomViewModel @Inject constructor(
             _errorFlow.value = "Bluetooth SCO failure: ${err.message}"
         }
     }
+
+    private data class BaseAudioMeshState(
+        val isSessionActive: Boolean,
+        val selectedMode: IntercomMode,
+        val transmissionState: TransmissionState,
+        val isMuted: Boolean,
+        val audioRouting: AudioRoutingState,
+        val meshState: MeshState,
+        val peers: List<MeshPeer>,
+        val isLoopbackActive: Boolean,
+        val micAudioLevel: Float
+    )
+
+    private data class UserPreferencesState(
+        val callsign: String,
+        val rideChannel: Int,
+        val vadThreshold: Float,
+        val opusBitrate: Int
+    )
+
+    private data class DialogsAndPreflightState(
+        val isCallsignDialogOpen: Boolean,
+        val isSettingsOpen: Boolean,
+        val isConnectionSetupOpen: Boolean,
+        val isPermissionSheetVisible: Boolean,
+        val mutedPeerIds: Set<String>,
+        val errorMessage: String?,
+        val preflightStatus: PreflightStatus,
+        val pairedHeadsets: List<PairedHeadset>
+    )
 }

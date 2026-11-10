@@ -98,10 +98,11 @@ class IntercomForegroundService : Service() {
                 startPeerNotificationMonitoring()
                 serviceScope.launch {
                     val callsign = preferencesDataSource.callsignFlow.first()
+                    val channel = preferencesDataSource.rideChannelFlow.first()
                     intercomRepository.startIntercomSession()
                     audioEngineRepository.startAudioEngine()
                     bluetoothScoRepository.startBluetoothSco()
-                    meshNetworkRepository.startMeshSession(callsign)
+                    meshNetworkRepository.startMeshSession(callsign, channel)
                 }
             }
         }

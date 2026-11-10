@@ -40,12 +40,16 @@ import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Radar
+import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,8 +58,10 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -109,7 +115,7 @@ fun IntercomRoute(
     val snackbarHostState = remember { SnackbarHostState() }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        viewModel.onEvent(IntercomUiEvent.RefreshBatteryStatus)
+        viewModel.onEvent(IntercomUiEvent.RefreshPreflightAndDevices)
     }
 
     LaunchedEffect(uiState.isSessionActive) {
@@ -143,6 +149,7 @@ fun IntercomRoute(
 
     IntercomScreen(
         uiState = uiState,
+        requiredPermissions = viewModel.getRequiredPermissions(),
         onEvent = viewModel::onEvent,
         onRequestBatteryExemption = onRequestBatteryExemption,
         snackbarHostState = snackbarHostState,
@@ -153,19 +160,73 @@ fun IntercomRoute(
 /**
  * Pragmatic Layout: Orchestrates stateless child components.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IntercomScreen(
     uiState: IntercomUiState,
+    requiredPermissions: List<String>,
     onEvent: (IntercomUiEvent) -> Unit,
     onRequestBatteryExemption: () -> Unit,
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier
 ) {
+    val preflightSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val settingsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val connectionSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     if (uiState.isCallsignDialogOpen) {
         CallsignEditDialog(
             currentCallsign = uiState.callsign,
             onDismiss = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(false)) },
             onConfirm = { onEvent(IntercomUiEvent.SaveCallsign(it)) }
+        )
+    }
+
+    if (uiState.isPermissionSheetVisible) {
+        PermissionPreflightSheet(
+            status = uiState.preflightStatus,
+            requiredPermissions = requiredPermissions,
+            onDismiss = { onEvent(IntercomUiEvent.SetPermissionSheetVisible(false)) },
+            onRefresh = { onEvent(IntercomUiEvent.RefreshPreflightAndDevices) },
+            sheetState = preflightSheetState
+        )
+    }
+
+    if (uiState.isSettingsOpen) {
+        SettingsSheet(
+            callsign = uiState.callsign,
+            rideChannel = uiState.rideChannel,
+            vadThreshold = uiState.vadThreshold,
+            opusBitrate = uiState.opusBitrate,
+            isLoopbackActive = uiState.isLoopbackActive,
+            audioRouting = uiState.audioRouting,
+            pairedHeadsets = uiState.pairedHeadsets,
+            preflightStatus = uiState.preflightStatus,
+            onOpenCallsignDialog = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(true)) },
+            onSelectChannel = { onEvent(IntercomUiEvent.SaveRideChannel(it)) },
+            onVadThresholdChanged = { onEvent(IntercomUiEvent.SaveVadThreshold(it)) },
+            onOpusBitrateChanged = { onEvent(IntercomUiEvent.SaveOpusBitrate(it)) },
+            onToggleLoopback = { onEvent(IntercomUiEvent.ToggleLoopbackClicked) },
+            onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
+            onOpenPermissions = {
+                onEvent(IntercomUiEvent.SetSettingsVisible(false))
+                onEvent(IntercomUiEvent.SetPermissionSheetVisible(true))
+            },
+            onDismiss = { onEvent(IntercomUiEvent.SetSettingsVisible(false)) },
+            sheetState = settingsSheetState
+        )
+    }
+
+    if (uiState.isConnectionSetupOpen) {
+        ConnectionSetupSheet(
+            isSessionActive = uiState.isSessionActive,
+            meshState = uiState.meshState,
+            rideChannel = uiState.rideChannel,
+            riders = uiState.riders,
+            onSelectChannel = { onEvent(IntercomUiEvent.SaveRideChannel(it)) },
+            onToggleSession = { onEvent(IntercomUiEvent.ToggleSessionClicked) },
+            onDismiss = { onEvent(IntercomUiEvent.SetConnectionSetupVisible(false)) },
+            sheetState = connectionSheetState
         )
     }
 
@@ -176,6 +237,7 @@ fun IntercomScreen(
         topBar = {
             IntercomTopBar(
                 callsign = uiState.callsign,
+                rideChannel = uiState.rideChannel,
                 isSessionActive = uiState.isSessionActive,
                 audioRouting = uiState.audioRouting,
                 isMuted = uiState.isMuted,
@@ -184,7 +246,9 @@ fun IntercomScreen(
                 onToggleSession = { onEvent(IntercomUiEvent.ToggleSessionClicked) },
                 onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
                 onToggleMute = { onEvent(IntercomUiEvent.ToggleMuteClicked) },
-                onToggleLoopback = { onEvent(IntercomUiEvent.ToggleLoopbackClicked) }
+                onToggleLoopback = { onEvent(IntercomUiEvent.ToggleLoopbackClicked) },
+                onOpenRadar = { onEvent(IntercomUiEvent.SetConnectionSetupVisible(true)) },
+                onOpenSettings = { onEvent(IntercomUiEvent.SetSettingsVisible(true)) }
             )
         }
     ) { paddingValues ->
@@ -201,18 +265,27 @@ fun IntercomScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 TransmissionBanner(
                     state = uiState.transmissionState,
                     isLoopbackActive = uiState.isLoopbackActive
                 )
+
+                // Critical Preflight Check Alert Banner
+                if (!uiState.preflightStatus.isReadyForIntercom) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    PreflightAlertCard(
+                        onFix = { onEvent(IntercomUiEvent.SetPermissionSheetVisible(true)) }
+                    )
+                }
+
                 if (!uiState.isBatteryOptimizationIgnored) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     BatteryOptimizationWarningCard(onRequestExemption = onRequestBatteryExemption)
                 }
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 AudioRoutingBadge(audioRouting = uiState.audioRouting)
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 ModeSelectorGroup(
                     selectedMode = uiState.selectedMode,
                     onModeSelected = { onEvent(IntercomUiEvent.ModeChanged(it)) }
@@ -229,24 +302,33 @@ fun IntercomScreen(
                 onToggleClick = { onEvent(IntercomUiEvent.ToggleMuteClicked) }
             )
 
-            // Connected Riders Mesh
+            // Connected Riders Mesh with Live Distance Meters
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp)
+                    .padding(bottom = 12.dp)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 8.dp),
+                        .padding(bottom = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "MESH RIDERS (${uiState.riders.size})",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = TextSecondary
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "MESH RIDERS (${uiState.riders.size})",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "• CH ${uiState.rideChannel}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentCyan
+                        )
+                    }
                     Text(
                         text = uiState.meshState.statusLabel,
                         style = MaterialTheme.typography.labelMedium,
@@ -274,6 +356,7 @@ fun IntercomScreen(
 @Composable
 private fun IntercomTopBar(
     callsign: String,
+    rideChannel: Int,
     isSessionActive: Boolean,
     audioRouting: AudioRoutingState,
     isMuted: Boolean,
@@ -282,14 +365,16 @@ private fun IntercomTopBar(
     onToggleSession: () -> Unit,
     onToggleSco: () -> Unit,
     onToggleMute: () -> Unit,
-    onToggleLoopback: () -> Unit
+    onToggleLoopback: () -> Unit,
+    onOpenRadar: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
             .displayCutoutPadding()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -301,13 +386,13 @@ private fun IntercomTopBar(
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .background(DarkSurfaceElevated)
                         .clickable { onOpenCallsignDialog() }
-                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -318,7 +403,7 @@ private fun IntercomTopBar(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = callsign.uppercase(),
+                        text = "$callsign (CH $rideChannel)",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = AccentCyan
@@ -331,7 +416,7 @@ private fun IntercomTopBar(
                     isSessionActive -> "FULL DUPLEX ACTIVE"
                     else -> "STANDBY"
                 },
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelMedium,
                 color = when {
                     isLoopbackActive -> AccentAmber
                     isSessionActive -> AccentGreen
@@ -341,20 +426,35 @@ private fun IntercomTopBar(
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // Loopback Self-Test Button
+            // Radar & Connection Setup Button
             IconButton(
-                onClick = onToggleLoopback,
+                onClick = onOpenRadar,
                 modifier = Modifier
                     .clip(CircleShape)
-                    .background(if (isLoopbackActive) AccentAmber.copy(alpha = 0.2f) else DarkSurfaceElevated)
+                    .background(DarkSurfaceElevated)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Hearing,
-                    contentDescription = "Loopback Test",
-                    tint = if (isLoopbackActive) AccentAmber else TextSecondary
+                    imageVector = Icons.Default.Sensors,
+                    contentDescription = "Radar & Connection Setup",
+                    tint = AccentCyan
                 )
             }
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+
+            // Settings Button
+            IconButton(
+                onClick = onOpenSettings,
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(DarkSurfaceElevated)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Settings",
+                    tint = TextPrimary
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
 
             // Mute Button
             IconButton(
@@ -369,22 +469,7 @@ private fun IntercomTopBar(
                     tint = if (isMuted) AccentRed else TextPrimary
                 )
             }
-            Spacer(modifier = Modifier.width(6.dp))
-
-            // Bluetooth SCO Toggle
-            IconButton(
-                onClick = onToggleSco,
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(if (audioRouting.isScoConnected) AccentCyan.copy(alpha = 0.2f) else DarkSurfaceElevated)
-            ) {
-                Icon(
-                    imageVector = if (audioRouting.isScoConnected) Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
-                    contentDescription = "Bluetooth SCO",
-                    tint = if (audioRouting.isScoConnected) AccentCyan else TextSecondary
-                )
-            }
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
 
             // Main Power Toggle
             IconButton(
@@ -398,6 +483,63 @@ private fun IntercomTopBar(
                     contentDescription = "Session Power",
                     tint = if (isSessionActive) AccentGreen else TextMuted
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreflightAlertCard(onFix: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onFix() }
+            .padding(vertical = 2.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = AccentRed.copy(alpha = 0.18f)),
+        border = BorderStroke(1.dp, AccentRed)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = AccentRed,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "Permissions or Radios Required",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = AccentRed,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "Mic or Bluetooth is offline. Tap to resolve and start talking.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextPrimary,
+                        fontSize = 10.sp
+                    )
+                }
+            }
+            Button(
+                onClick = onFix,
+                colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                modifier = Modifier.height(28.dp)
+            ) {
+                Text(text = "SETUP", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
             }
         }
     }
@@ -449,12 +591,12 @@ private fun CallsignEditDialog(
                 onClick = { onConfirm(text) },
                 colors = ButtonDefaults.buttonColors(containerColor = AccentCyan)
             ) {
-                Text("SAVE", color = Color.Black, fontWeight = FontWeight.Bold)
+                Text(text = "SAVE", color = Color.Black, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("CANCEL", color = TextSecondary)
+                Text(text = "CANCEL", color = TextSecondary)
             }
         },
         containerColor = DarkSurfaceElevated
@@ -466,69 +608,71 @@ private fun TransmissionBanner(
     state: TransmissionState,
     isLoopbackActive: Boolean
 ) {
-    val (bgColor, textColor, label) = when {
-        isLoopbackActive -> Triple(AccentAmber, Color.Black, "OPUS AUDIO LOOPBACK (TEST MODE)")
-        state == TransmissionState.TRANSMITTING -> Triple(AccentGreen, Color.Black, "TRANSMITTING (TX)")
-        state == TransmissionState.RECEIVING -> Triple(AccentCyan, Color.Black, "RECEIVING (RX)")
-        state == TransmissionState.FULL_DUPLEX -> Triple(AccentAmber, Color.Black, "FULL DUPLEX ACTIVE")
-        else -> Triple(DarkSurfaceElevated, TextSecondary, "CHANNEL CLEAR")
+    val backgroundColor by animateColorAsState(
+        targetValue = when {
+            isLoopbackActive -> AccentAmber.copy(alpha = 0.2f)
+            state == TransmissionState.TRANSMITTING -> AccentGreen.copy(alpha = 0.2f)
+            else -> DarkSurfaceElevated
+        },
+        label = "banner_background"
+    )
+    val borderColor = when {
+        isLoopbackActive -> AccentAmber
+        state == TransmissionState.TRANSMITTING -> AccentGreen
+        else -> DarkSurface
+    }
+    val textColor = when {
+        isLoopbackActive -> AccentAmber
+        state == TransmissionState.TRANSMITTING -> AccentGreen
+        else -> TextSecondary
     }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(bgColor)
+            .background(backgroundColor)
+            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
             .padding(vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = label,
+            text = when {
+                isLoopbackActive -> "LOOPBACK SELF-TEST (LOCAL ECHO)"
+                state == TransmissionState.TRANSMITTING -> "● TRANSMITTING AUDIO"
+                else -> "INTERCOM READY"
+            },
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            color = textColor,
-            letterSpacing = 1.sp
+            color = textColor
         )
     }
 }
 
 @Composable
 private fun AudioRoutingBadge(audioRouting: AudioRoutingState) {
-    val isSco = audioRouting.isScoConnected
-    val deviceName = audioRouting.connectedDeviceName ?: "Phone Internal Audio"
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(DarkSurfaceElevated)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = DarkSurfaceElevated
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Icon(
-                imageVector = if (isSco) Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
-                contentDescription = "Routing",
-                tint = if (isSco) AccentCyan else TextMuted,
+                imageVector = if (audioRouting.isScoConnected) Icons.Default.BluetoothConnected else Icons.Default.Mic,
+                contentDescription = null,
+                tint = if (audioRouting.isScoConnected) AccentCyan else TextSecondary,
                 modifier = Modifier.size(16.dp)
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = deviceName,
-                style = MaterialTheme.typography.bodyLarge,
-                fontSize = 13.sp,
-                color = TextPrimary
+                text = audioRouting.deviceDescription.uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                color = if (audioRouting.isScoConnected) AccentCyan else TextSecondary,
+                fontWeight = FontWeight.SemiBold
             )
         }
-
-        Text(
-            text = if (isSco) "HELMET SCO" else "SPEAKER",
-            fontWeight = FontWeight.Bold,
-            fontSize = 11.sp,
-            color = if (isSco) AccentCyan else TextMuted,
-            letterSpacing = 0.5.sp
-        )
     }
 }
 
@@ -537,50 +681,34 @@ private fun ModeSelectorGroup(
     selectedMode: IntercomMode,
     onModeSelected: (IntercomMode) -> Unit
 ) {
-    val haptic = LocalHapticFeedback.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(DarkSurface)
+            .background(DarkSurfaceElevated)
             .padding(4.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         IntercomMode.entries.forEach { mode ->
             val isSelected = mode == selectedMode
-            val bg by animateColorAsState(
-                targetValue = if (isSelected) DarkSurfaceElevated else Color.Transparent,
-                label = "mode_bg"
-            )
-            val textColor by animateColorAsState(
-                targetValue = if (isSelected) AccentGreen else TextMuted,
-                label = "mode_text"
-            )
-
-            Box(
+            Surface(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(bg)
-                    .pointerInput(mode) {
-                        detectTapGestures {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onModeSelected(mode)
-                        }
-                    }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center
+                    .clickable { onModeSelected(mode) },
+                color = if (isSelected) AccentCyan else Color.Transparent
             ) {
-                Text(
-                    text = when (mode) {
-                        IntercomMode.PUSH_TO_TALK -> "PTT"
-                        IntercomMode.TOGGLE -> "TOGGLE"
-                        IntercomMode.ALWAYS_ON -> "ALWAYS-ON"
-                    },
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    fontSize = 13.sp,
-                    color = textColor
-                )
+                Box(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = mode.displayName.uppercase(),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) Color.Black else TextSecondary
+                    )
+                }
             }
         }
     }
@@ -596,109 +724,107 @@ private fun PttControlTarget(
     onToggleClick: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
-    val isTransmitting = transmissionState == TransmissionState.TRANSMITTING ||
-            transmissionState == TransmissionState.FULL_DUPLEX
+    val isTransmitting = transmissionState == TransmissionState.TRANSMITTING
 
-    val outerColor by animateColorAsState(
-        targetValue = if (isTransmitting) AccentGreen else DarkSurface,
-        label = "ptt_outer"
+    val targetSize by animateDpAsState(
+        targetValue = if (isTransmitting) 220.dp else 200.dp,
+        label = "ptt_size"
     )
-
-    // Animated glow pulse based on microphone loudness (0.0 to 1.0)
-    val animatedScale by animateFloatAsState(
-        targetValue = if (isTransmitting) 1.0f + (micAudioLevel * 0.12f) else 1.0f,
-        label = "ptt_scale"
+    val glowScale by animateFloatAsState(
+        targetValue = if (isTransmitting) 1.0f + (micAudioLevel * 0.25f) else 1.0f,
+        label = "ptt_glow"
     )
-
-    val animatedBorderWidth by animateDpAsState(
-        targetValue = if (isTransmitting) 4.dp + (micAudioLevel * 8f).dp else 4.dp,
-        label = "ptt_border"
+    val buttonColor by animateColorAsState(
+        targetValue = when {
+            !isSessionActive -> DarkSurfaceElevated
+            isTransmitting -> AccentGreen
+            mode == IntercomMode.ALWAYS_ON -> AccentGreen.copy(alpha = 0.8f)
+            else -> AccentCyan
+        },
+        label = "ptt_color"
     )
 
     Box(
-        modifier = Modifier
-            .size(200.dp)
-            .scale(animatedScale)
-            .clip(CircleShape)
-            .background(DarkSurfaceElevated)
-            .border(animatedBorderWidth, outerColor, CircleShape)
-            .pointerInput(mode, isSessionActive) {
-                if (!isSessionActive) return@pointerInput
-
-                when (mode) {
-                    IntercomMode.PUSH_TO_TALK -> {
-                        detectTapGestures(
-                            onPress = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onPttChange(true)
-                                tryAwaitRelease()
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onPttChange(false)
-                            }
-                        )
-                    }
-                    IntercomMode.TOGGLE,
-                    IntercomMode.ALWAYS_ON -> {
-                        detectTapGestures {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onToggleClick()
-                        }
-                    }
-                }
-            },
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(240.dp)
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                imageVector = Icons.Default.Mic,
-                contentDescription = "PTT Action",
-                tint = if (isTransmitting) AccentGreen else TextSecondary,
-                modifier = Modifier.size(56.dp)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = when {
-                    !isSessionActive -> "SESSION OFF"
-                    mode == IntercomMode.PUSH_TO_TALK -> if (isTransmitting) "TALKING" else "HOLD TO TALK"
-                    mode == IntercomMode.TOGGLE -> if (isTransmitting) "MIC OPEN" else "TAP TO OPEN"
-                    IntercomMode.ALWAYS_ON == mode -> if (isTransmitting) "OPEN INTERCOM" else "MUTED"
-                    else -> "INTERCOM"
-                },
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                color = if (isTransmitting) AccentGreen else TextPrimary
-            )
-        }
-    }
-}
-
-@Composable
-private fun SignalStrengthBars(
-    dbm: Int,
-    modifier: Modifier = Modifier
-) {
-    val activeBars = when {
-        dbm >= -65 -> 4
-        dbm >= -75 -> 3
-        dbm >= -85 -> 2
-        else -> 1
-    }
-
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-        verticalAlignment = Alignment.Bottom
-    ) {
-        for (i in 1..4) {
-            val barHeight = (4 + i * 2.5f).dp
-            val isFilled = i <= activeBars
+        // Voice Activity Radial Halo
+        if (isTransmitting && micAudioLevel > 0.05f) {
             Box(
                 modifier = Modifier
-                    .width(3.dp)
-                    .height(barHeight)
-                    .clip(RoundedCornerShape(1.dp))
-                    .background(if (isFilled) AccentCyan else DarkSurfaceElevated)
+                    .size(240.dp)
+                    .scale(glowScale)
+                    .clip(CircleShape)
+                    .background(AccentGreen.copy(alpha = (micAudioLevel * 0.4f).coerceIn(0.1f, 0.4f)))
             )
+        }
+
+        // Main Glove-Friendly Touch Button
+        Box(
+            modifier = Modifier
+                .size(targetSize)
+                .clip(CircleShape)
+                .background(buttonColor)
+                .border(
+                    width = if (isTransmitting) 4.dp else 2.dp,
+                    color = if (isTransmitting) Color.White else AccentCyan.copy(alpha = 0.5f),
+                    shape = CircleShape
+                )
+                .pointerInput(mode, isSessionActive) {
+                    if (!isSessionActive) return@pointerInput
+                    when (mode) {
+                        IntercomMode.PUSH_TO_TALK -> {
+                            detectTapGestures(
+                                onPress = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onPttChange(true)
+                                    tryAwaitRelease()
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onPttChange(false)
+                                }
+                            )
+                        }
+                        IntercomMode.TOGGLE -> {
+                            detectTapGestures(
+                                onTap = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onToggleClick()
+                                }
+                            )
+                        }
+                        IntercomMode.ALWAYS_ON -> {
+                            // In Always-on mode, mic is controlled by VAD gate
+                        }
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = when {
+                        !isSessionActive -> Icons.Default.PowerSettingsNew
+                        isTransmitting -> Icons.Default.Mic
+                        else -> Icons.Default.MicOff
+                    },
+                    contentDescription = null,
+                    tint = if (isTransmitting) Color.Black else TextPrimary,
+                    modifier = Modifier.size(56.dp)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = when {
+                        !isSessionActive -> "SESSION OFF"
+                        isTransmitting -> "LIVE"
+                        mode == IntercomMode.PUSH_TO_TALK -> "HOLD TO TALK"
+                        mode == IntercomMode.TOGGLE -> "TAP TO TALK"
+                        mode == IntercomMode.ALWAYS_ON -> "ALWAYS-ON MESH"
+                        else -> "STANDBY"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isTransmitting) Color.Black else TextPrimary
+                )
+            }
         }
     }
 }
@@ -712,38 +838,31 @@ private fun RiderMeshList(
 ) {
     if (riders.isEmpty()) {
         Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(120.dp),
-            shape = RoundedCornerShape(8.dp),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface)
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkSurfaceElevated)
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                Icon(
+                    imageVector = Icons.Default.Sensors,
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(36.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = when (meshState) {
-                        MeshState.CONNECTED -> "No other riders active yet"
-                        MeshState.SEARCHING -> "Discovering nearby helmet intercoms..."
-                        MeshState.DISCONNECTED -> "Intercom session standby"
+                        MeshState.SEARCHING -> "Scanning for nearby motorcycle riders..."
+                        MeshState.CONNECTED -> "Waiting for riders to link..."
+                        MeshState.DISCONNECTED -> "No riders connected. Tap Setup or Power to begin."
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
                     color = TextSecondary
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = when (meshState) {
-                        MeshState.CONNECTED -> "Waiting for audio datagrams"
-                        MeshState.SEARCHING -> "BLE & Wi-Fi Direct zero-config pairing active"
-                        MeshState.DISCONNECTED -> "Tap power icon in top bar to start session"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextMuted
                 )
             }
         }
@@ -820,9 +939,11 @@ private fun RiderItemRow(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         SignalStrengthBars(dbm = rider.signalStrengthDbm)
                         Spacer(modifier = Modifier.width(6.dp))
+                        // Real-time Distance & Bearing
                         Text(
-                            text = "${rider.signalStrengthDbm} dBm • ${rider.latencyMs}ms",
-                            color = TextMuted,
+                            text = "${rider.formattedDistance} • ${rider.relativePosition ?: "Direct"} (${rider.signalStrengthDbm} dBm)",
+                            color = AccentCyan,
+                            fontWeight = FontWeight.Medium,
                             fontSize = 11.sp
                         )
                     }
@@ -868,7 +989,7 @@ private fun BatteryOptimizationWarningCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 2.dp),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = AccentAmber.copy(alpha = 0.15f)),
         border = BorderStroke(1.dp, AccentAmber)
@@ -913,7 +1034,7 @@ private fun BatteryOptimizationWarningCard(
                 onClick = onRequestExemption,
                 colors = ButtonDefaults.buttonColors(containerColor = AccentAmber),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                modifier = Modifier.height(32.dp)
+                modifier = Modifier.height(28.dp)
             ) {
                 Text(
                     text = "EXEMPT",
@@ -922,6 +1043,34 @@ private fun BatteryOptimizationWarningCard(
                     fontSize = 11.sp
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun SignalStrengthBars(dbm: Int) {
+    val bars = when {
+        dbm >= -60 -> 4
+        dbm >= -75 -> 3
+        dbm >= -85 -> 2
+        else -> 1
+    }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.Bottom,
+        modifier = Modifier.height(10.dp)
+    ) {
+        for (i in 1..4) {
+            val isActive = i <= bars
+            val heightFraction = i * 0.25f
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height((10 * heightFraction).dp)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(if (isActive) AccentCyan else DarkSurfaceElevated)
+            )
         }
     }
 }

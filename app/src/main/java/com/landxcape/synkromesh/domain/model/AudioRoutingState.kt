@@ -11,4 +11,11 @@ data class AudioRoutingState(
     val activeTarget: AudioRoutingTarget = AudioRoutingTarget.DEVICE_SPEAKER,
     val isScoConnected: Boolean = false,
     val connectedDeviceName: String? = null
-)
+) {
+    val deviceDescription: String
+        get() = when {
+            isScoConnected -> connectedDeviceName ?: "Helmet SCO Headset"
+            activeTarget == AudioRoutingTarget.WIRED_HEADSET -> "Wired Headset"
+            else -> "Device Speaker / Mic"
+        }
+}

@@ -7,5 +7,11 @@ data class MeshPeer(
     val ipAddress: String? = null,
     val signalDbm: Int = -60,
     val isTransmitting: Boolean = false,
-    val lastSeenTimestampMs: Long = System.currentTimeMillis()
+    val lastSeenTimestampMs: Long = System.currentTimeMillis(),
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val speedKmh: Float? = null,
+    val bearingDegrees: Float? = null,
+    val estimatedDistanceMeters: Float? = null,
+    val relativeBearingDegrees: Float? = null
 )
