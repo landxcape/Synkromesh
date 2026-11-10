@@ -12,6 +12,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -720,7 +721,7 @@ private fun OpenMeshContent(
                             letterSpacing = 1.sp
                         )
                         Text(
-                            text = "Channel 0$selectedChannel Active",
+                            text = if (selectedChannel < 10) "Channel 0$selectedChannel Active" else "Channel $selectedChannel Active",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Black,
                             color = TextPrimary
@@ -743,7 +744,7 @@ private fun OpenMeshContent(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
                     text = "SELECT FREQUENCY",
@@ -751,41 +752,51 @@ private fun OpenMeshContent(
                     fontSize = 10.sp,
                     color = TextMuted
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(scrollState),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // Ergonomic 4x4 Grid - Zero horizontal scroll, glove-friendly touch targets
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    for (ch in 1..16) {
-                        val isSelected = ch == selectedChannel
-                        Surface(
-                            modifier = Modifier
-                                .size(50.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { onSelectChannel(ch) },
-                            color = if (isSelected) TextPrimary else DarkSurfaceElevated,
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, if (isSelected) TextPrimary else BorderSubtle)
+                    for (rowIndex in 0 until 4) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = if (ch < 10) "0$ch" else "$ch",
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 15.sp,
-                                    color = if (isSelected) DarkBackground else TextPrimary
-                                )
+                            for (colIndex in 0 until 4) {
+                                val ch = rowIndex * 4 + colIndex + 1
+                                val isSelected = ch == selectedChannel
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { onSelectChannel(ch) },
+                                    color = if (isSelected) TextPrimary else DarkSurfaceElevated,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, if (isSelected) TextPrimary else BorderSubtle)
+                                ) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = if (ch < 10) "0$ch" else "$ch",
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 15.sp,
+                                            color = if (isSelected) DarkBackground else TextPrimary
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -794,7 +805,7 @@ private fun OpenMeshContent(
                 border = BorderStroke(1.dp, BorderSubtle)
             ) {
                 Text(
-                    text = "All riders on Channel 0$selectedChannel talk and listen simultaneously via self-healing peer-to-peer mesh.",
+                    text = "All riders on Channel ${if (selectedChannel < 10) "0$selectedChannel" else "$selectedChannel"} talk and listen simultaneously via self-healing peer-to-peer mesh.",
                     fontSize = 12.sp,
                     color = TextSecondary,
                     modifier = Modifier.padding(12.dp)
@@ -827,7 +838,7 @@ private fun LeadPackContent(
     }
 
     val qrBitmap = remember(qrData) {
-        RideQrManager.generateQrBitmap(qrData, sizePx = 360)
+        RideQrManager.generateQrBitmap(qrData, sizePx = 720)
     }
 
     Surface(
@@ -888,10 +899,13 @@ private fun LeadPackContent(
                 )
             }
 
-            // Precision QR Frame
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Precision QR Frame - Full Width Adaptive Aspect Ratio
             Surface(
                 modifier = Modifier
-                    .size(175.dp)
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
                     .clip(RoundedCornerShape(12.dp)),
                 color = Color(0xFFF1F5F9),
                 shape = RoundedCornerShape(12.dp),
@@ -907,18 +921,20 @@ private fun LeadPackContent(
                             contentDescription = "Pairing Matrix",
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(8.dp)
+                                .padding(10.dp)
                         )
                     } else {
                         Text(
-                            text = "INITIALIZING",
+                            text = "INITIALIZING MATRIX",
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             color = Color.Black
                         )
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Live Telemetry Footer
             Row(
@@ -930,7 +946,7 @@ private fun LeadPackContent(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "CH 0$channel",
+                    text = if (channel < 10) "CH 0$channel" else "CH $channel",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,

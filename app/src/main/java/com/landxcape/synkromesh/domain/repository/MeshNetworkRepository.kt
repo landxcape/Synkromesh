@@ -27,5 +27,7 @@ interface MeshNetworkRepository {
     suspend fun startLocalHotspot(): Result<Unit>
     suspend fun stopLocalHotspot(): Result<Unit>
     suspend fun toggleLocalHotspot(): Result<Boolean>
+    suspend fun connectToLeadHotspot(ssid: String, password: String): Result<Unit>
+    suspend fun disconnectLeadHotspot(): Result<Unit>
     fun setPackToken(token: String?)
 }

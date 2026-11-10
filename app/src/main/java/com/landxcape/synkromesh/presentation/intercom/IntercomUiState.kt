@@ -76,6 +76,7 @@ sealed interface IntercomUiEvent {
     data object RefreshPreflightAndDevices : IntercomUiEvent
     data class SelectGroupingMode(val mode: GroupingMode) : IntercomUiEvent
     data class SetPackToken(val token: String?) : IntercomUiEvent
+    data class ConnectLeadHotspot(val ssid: String, val password: String? = null) : IntercomUiEvent
     data object EngageIntercom : IntercomUiEvent
     data object ReturnToStaging : IntercomUiEvent
     data object ToggleRadarOverlay : IntercomUiEvent

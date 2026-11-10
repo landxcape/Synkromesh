@@ -241,6 +241,7 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.RefreshPreflightAndDevices -> refreshPreflightAndDevices()
                 is IntercomUiEvent.SelectGroupingMode -> onSelectGroupingMode(event.mode)
                 is IntercomUiEvent.SetPackToken -> onSetPackToken(event.token)
+                is IntercomUiEvent.ConnectLeadHotspot -> onConnectLeadHotspot(event.ssid, event.password)
                 is IntercomUiEvent.EngageIntercom -> onEngageIntercom()
                 is IntercomUiEvent.ReturnToStaging -> onReturnToStaging()
                 is IntercomUiEvent.ToggleRadarOverlay -> _isRadarOverlayActive.value = !_isRadarOverlayActive.value
@@ -354,6 +355,10 @@ class IntercomViewModel @Inject constructor(
         meshNetworkRepository.setPackToken(token)
     }
 
+    private suspend fun onConnectLeadHotspot(ssid: String, password: String?) {
+        meshNetworkRepository.connectToLeadHotspot(ssid, password.orEmpty())
+    }
+
     private suspend fun onEngageIntercom() {
         _cockpitPhase.value = CockpitPhase.COCKPIT
         val isSessionActive = intercomRepository.observeIsSessionActive().first()
@@ -377,9 +382,13 @@ class IntercomViewModel @Inject constructor(
         audioToneFeedbackGenerator.playFeedbackTone(FeedbackTone.MIC_OPEN)
     }
 
-    private fun onReturnToStaging() {
+    private suspend fun onReturnToStaging() {
         _cockpitPhase.value = CockpitPhase.STAGING
         _isRadarOverlayActive.value = false
+        meshNetworkRepository.stopMeshSession()
+        audioEngineRepository.stopAudioEngine()
+        bluetoothScoRepository.stopBluetoothSco()
+        stopIntercomSessionUseCase()
     }
 
     private suspend fun onToggleSession() {

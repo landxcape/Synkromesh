@@ -67,6 +67,7 @@ class IntercomForegroundService : Service() {
         const val NOTIFICATION_ID = 1001
         const val ACTION_START = "ACTION_START_INTERCOM"
         const val ACTION_STOP = "ACTION_STOP_INTERCOM"
+        const val ACTION_STOP_AND_EXIT = "ACTION_STOP_AND_EXIT"
     }
 
     override fun onCreate() {
@@ -80,17 +81,16 @@ class IntercomForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                peerMonitoringJob?.cancel()
-                peerMonitoringJob = null
-                serviceScope.launch {
-                    meshNetworkRepository.stopMeshSession()
-                    audioEngineRepository.stopAudioEngine()
-                    bluetoothScoRepository.stopBluetoothSco()
-                    intercomRepository.stopIntercomSession()
+                teardownServiceSession()
+                return START_NOT_STICKY
+            }
+            ACTION_STOP_AND_EXIT -> {
+                teardownServiceSession()
+                val exitIntent = Intent(this, com.landxcape.synkromesh.presentation.MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    putExtra(com.landxcape.synkromesh.presentation.MainActivity.EXTRA_EXIT, true)
                 }
-                headsetMediaButtonManager.deactivateMediaSession()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                startActivity(exitIntent)
                 return START_NOT_STICKY
             }
             else -> {
@@ -108,6 +108,24 @@ class IntercomForegroundService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    private fun teardownServiceSession() {
+        peerMonitoringJob?.cancel()
+        peerMonitoringJob = null
+        serviceScope.launch {
+            meshNetworkRepository.stopMeshSession()
+            audioEngineRepository.stopAudioEngine()
+            bluetoothScoRepository.stopBluetoothSco()
+            intercomRepository.stopIntercomSession()
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.mode = AudioManager.MODE_NORMAL
+        }
+        headsetMediaButtonManager.deactivateMediaSession()
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wifiLock?.let { if (it.isHeld) it.release() }
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun startPeerNotificationMonitoring() {
@@ -151,10 +169,28 @@ class IntercomForegroundService : Service() {
     }
 
     private fun buildNotification(statusText: String): Notification {
-        val pendingIntent = PendingIntent.getActivity(
+        val openAppIntent = PendingIntent.getActivity(
             this,
             0,
             Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val deleteIntent = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, IntercomForegroundService::class.java).apply {
+                action = ACTION_STOP
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val stopExitIntent = PendingIntent.getService(
+            this,
+            2,
+            Intent(this, IntercomForegroundService::class.java).apply {
+                action = ACTION_STOP_AND_EXIT
+            },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
@@ -162,8 +198,14 @@ class IntercomForegroundService : Service() {
             .setContentTitle(getString(R.string.intercom_notification_title))
             .setContentText(statusText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
+            .setContentIntent(openAppIntent)
+            .setDeleteIntent(deleteIntent)
+            .setOngoing(false)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "STOP & EXIT",
+                stopExitIntent
+            )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
     }

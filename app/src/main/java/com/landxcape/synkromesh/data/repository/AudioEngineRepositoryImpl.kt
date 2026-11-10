@@ -6,7 +6,9 @@ import com.landxcape.synkromesh.data.datasource.audio.OpusCodecEngine
 import com.landxcape.synkromesh.data.datasource.local.PreferencesDataSource
 import com.landxcape.synkromesh.domain.model.AudioLevel
 import com.landxcape.synkromesh.domain.model.AudioPacket
+import com.landxcape.synkromesh.domain.model.TransmissionState
 import com.landxcape.synkromesh.domain.repository.AudioEngineRepository
+import com.landxcape.synkromesh.domain.repository.IntercomRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,11 +19,14 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 @Singleton
@@ -29,13 +34,16 @@ class AudioEngineRepositoryImpl @Inject constructor(
     private val captureDriver: AudioCaptureDriver,
     private val playbackDriver: AudioPlaybackDriver,
     private val codecEngine: OpusCodecEngine,
-    private val preferencesDataSource: PreferencesDataSource
+    private val preferencesDataSource: PreferencesDataSource,
+    private val intercomRepositoryProvider: Provider<IntercomRepository>
 ) : AudioEngineRepository {
 
     private val engineScope = CoroutineScope(Dispatchers.IO)
     private var processingJob: Job? = null
+    private var gatingJob: Job? = null
     private val sequenceCounter = AtomicLong(0)
     private val lastProcessedSeq = ConcurrentHashMap<String, Long>()
+    private val canTransmit = AtomicBoolean(false)
 
     private val _isLoopbackActive = MutableStateFlow(false)
     private val _isEngineActive = MutableStateFlow(false)
@@ -60,8 +68,27 @@ class AudioEngineRepositoryImpl @Inject constructor(
         captureDriver.startCapture().getOrThrow()
         _isEngineActive.value = true
 
+        val intercomRepo = intercomRepositoryProvider.get()
+        gatingJob?.cancel()
+        gatingJob = engineScope.launch {
+            combine(
+                intercomRepo.observeTransmissionState(),
+                intercomRepo.observeIsMuted(),
+                intercomRepo.observeIsSessionActive()
+            ) { txState, isMuted, isSessionActive ->
+                isSessionActive && txState == TransmissionState.TRANSMITTING && !isMuted
+            }.collect { allowed ->
+                canTransmit.set(allowed)
+            }
+        }
+
         processingJob = engineScope.launch {
             captureDriver.pcmFrameFlow.collect { pcmSamples ->
+                // Hardware transmission gate: drop outgoing packets if mic is muted or not transmitting
+                if (!canTransmit.get()) {
+                    return@collect
+                }
+
                 // 1. Encode 20ms PCM frame to Opus packet
                 val opusBytes = codecEngine.encode(pcmSamples) ?: return@collect
 
@@ -87,6 +114,9 @@ class AudioEngineRepositoryImpl @Inject constructor(
 
     override suspend fun stopAudioEngine(): Result<Unit> = runCatching {
         _isEngineActive.value = false
+        canTransmit.set(false)
+        gatingJob?.cancel()
+        gatingJob = null
         processingJob?.cancel()
         processingJob = null
         lastProcessedSeq.clear()

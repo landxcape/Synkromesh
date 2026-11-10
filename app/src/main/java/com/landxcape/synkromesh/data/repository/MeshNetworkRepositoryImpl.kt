@@ -5,6 +5,7 @@ import com.landxcape.synkromesh.data.datasource.mesh.LocalHotspotDriver
 import com.landxcape.synkromesh.data.datasource.mesh.LocationTelemetryDataSource
 import com.landxcape.synkromesh.data.datasource.mesh.NearbyMeshDiscoveryDriver
 import com.landxcape.synkromesh.data.datasource.mesh.UdpMeshSocketDriver
+import com.landxcape.synkromesh.data.datasource.mesh.WifiHotspotClientDriver
 import com.landxcape.synkromesh.domain.model.AudioPacket
 import com.landxcape.synkromesh.domain.model.MeshPeer
 import com.landxcape.synkromesh.domain.model.MeshState
@@ -26,6 +27,7 @@ class MeshNetworkRepositoryImpl @Inject constructor(
     private val udpDriver: UdpMeshSocketDriver,
     private val nearbyDriver: NearbyMeshDiscoveryDriver,
     private val hotspotDriver: LocalHotspotDriver,
+    private val wifiHotspotClientDriver: WifiHotspotClientDriver,
     private val locationDataSource: LocationTelemetryDataSource,
     private val audioEngineRepository: AudioEngineRepository,
     private val preferencesDataSource: PreferencesDataSource
@@ -154,6 +156,15 @@ class MeshNetworkRepositoryImpl @Inject constructor(
         nearbyDriver.stop().getOrThrow()
         udpDriver.stopSocket().getOrThrow()
         hotspotDriver.stopLocalHotspot().getOrThrow()
+        wifiHotspotClientDriver.disconnect().getOrThrow()
+    }
+
+    override suspend fun connectToLeadHotspot(ssid: String, password: String): Result<Unit> {
+        return wifiHotspotClientDriver.connectToHotspot(ssid, password)
+    }
+
+    override suspend fun disconnectLeadHotspot(): Result<Unit> {
+        return wifiHotspotClientDriver.disconnect()
     }
 
     override suspend fun broadcastVoicePacket(packet: AudioPacket): Result<Unit> {

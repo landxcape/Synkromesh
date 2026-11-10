@@ -192,6 +192,9 @@ fun IntercomScreen(
                         onEvent(IntercomUiEvent.SaveRideChannel(data.channel))
                         onEvent(IntercomUiEvent.SelectGroupingMode(GroupingMode.JOIN))
                         onEvent(IntercomUiEvent.SetPackToken(data.packToken))
+                        if (!data.ssid.isNullOrBlank()) {
+                            onEvent(IntercomUiEvent.ConnectLeadHotspot(data.ssid, data.password))
+                        }
                         onEvent(IntercomUiEvent.EngageIntercom)
                         coroutineScope.launch {
                             snackbarHostState.showSnackbar("Joined Channel ${data.channel} (Host: ${data.callsign})")

@@ -67,7 +67,7 @@ class IntercomRepositoryImpl @Inject constructor(
 
     override suspend fun handlePttPress(isPressed: Boolean): Result<Unit> = runCatching {
         if (_intercomMode.value == IntercomMode.PUSH_TO_TALK) {
-            _transmissionState.value = if (isPressed) TransmissionState.TRANSMITTING else TransmissionState.IDLE
+            _transmissionState.value = if (isPressed && !_isMuted.value) TransmissionState.TRANSMITTING else TransmissionState.IDLE
         }
     }
 
