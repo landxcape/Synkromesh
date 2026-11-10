@@ -10,10 +10,29 @@ plugins {
 }
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
+val ciKeystoreFile = rootProject.file("synkromesh-release.jks")
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.exists()) {
         load(FileInputStream(keystorePropertiesFile))
     }
+}
+
+if (!keystorePropertiesFile.exists() && !ciKeystoreFile.exists()) {
+    try {
+        project.exec {
+            commandLine(
+                "keytool", "-genkey", "-noprompt",
+                "-keystore", ciKeystoreFile.absolutePath,
+                "-alias", "synkromesh",
+                "-keyalg", "RSA",
+                "-keysize", "2048",
+                "-validity", "10000",
+                "-storepass", "synkromesh",
+                "-keypass", "synkromesh",
+                "-dname", "CN=Synkromesh, OU=Mobile, O=Landxcape, L=Unknown, ST=Unknown, C=US"
+            )
+        }
+    } catch (_: Exception) {}
 }
 
 android {
@@ -59,12 +78,11 @@ android {
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
-            } else {
-                val debugSigning = signingConfigs.getByName("debug")
-                storeFile = debugSigning.storeFile
-                storePassword = debugSigning.storePassword
-                keyAlias = debugSigning.keyAlias
-                keyPassword = debugSigning.keyPassword
+            } else if (ciKeystoreFile.exists()) {
+                storeFile = ciKeystoreFile
+                storePassword = "synkromesh"
+                keyAlias = "synkromesh"
+                keyPassword = "synkromesh"
             }
         }
     }

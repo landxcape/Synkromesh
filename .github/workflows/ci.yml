@@ -43,6 +43,21 @@ jobs:
       - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew
 
+      - name: Setup Release Keystore
+        run: |
+          if [ ! -f "keystore.properties" ] && [ ! -f "synkromesh-release.jks" ]; then
+            keytool -genkey -noprompt -keystore synkromesh-release.jks \
+              -alias synkromesh -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass synkromesh -keypass synkromesh \
+              -dname "CN=Synkromesh, OU=Mobile, O=Landxcape, L=Unknown, ST=Unknown, C=US"
+            cat <<EOF > keystore.properties
+          storePassword=synkromesh
+          keyPassword=synkromesh
+          keyAlias=synkromesh
+          storeFile=synkromesh-release.jks
+          EOF
+          fi
+
       - name: Run Unit Tests
         run: ./gradlew testReleaseUnitTest --stacktrace
 
