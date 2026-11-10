@@ -16,6 +16,9 @@ data class IntercomUiState(
     val micAudioLevel: Float = 0.0f,
     val audioRouting: AudioRoutingState = AudioRoutingState(),
     val meshState: MeshState = MeshState.DISCONNECTED,
+    val callsign: String = "Rider 1",
+    val isCallsignDialogOpen: Boolean = false,
+    val mutedPeerIds: Set<String> = emptySet(),
     val peers: List<MeshPeer> = emptyList(),
     val riders: List<Rider> = emptyList(),
     val errorMessage: String? = null
@@ -28,5 +31,8 @@ sealed interface IntercomUiEvent {
     data object ToggleSessionClicked : IntercomUiEvent
     data object ToggleBluetoothScoClicked : IntercomUiEvent
     data object ToggleLoopbackClicked : IntercomUiEvent
+    data class SetCallsignDialogVisible(val isVisible: Boolean) : IntercomUiEvent
+    data class SaveCallsign(val callsign: String) : IntercomUiEvent
+    data class TogglePeerMute(val peerId: String) : IntercomUiEvent
     data object ClearError : IntercomUiEvent
 }

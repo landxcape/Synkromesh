@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,32 +24,45 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -124,16 +138,26 @@ fun IntercomScreen(
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier
 ) {
+    if (uiState.isCallsignDialogOpen) {
+        CallsignEditDialog(
+            currentCallsign = uiState.callsign,
+            onDismiss = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(false)) },
+            onConfirm = { onEvent(IntercomUiEvent.SaveCallsign(it)) }
+        )
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = DarkBackground,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             IntercomTopBar(
+                callsign = uiState.callsign,
                 isSessionActive = uiState.isSessionActive,
                 audioRouting = uiState.audioRouting,
                 isMuted = uiState.isMuted,
                 isLoopbackActive = uiState.isLoopbackActive,
+                onOpenCallsignDialog = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(true)) },
                 onToggleSession = { onEvent(IntercomUiEvent.ToggleSessionClicked) },
                 onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
                 onToggleMute = { onEvent(IntercomUiEvent.ToggleMuteClicked) },
@@ -206,7 +230,12 @@ fun IntercomScreen(
                         }
                     )
                 }
-                RiderMeshList(riders = uiState.riders, meshState = uiState.meshState)
+                RiderMeshList(
+                    riders = uiState.riders,
+                    meshState = uiState.meshState,
+                    mutedPeerIds = uiState.mutedPeerIds,
+                    onToggleMutePeer = { onEvent(IntercomUiEvent.TogglePeerMute(it)) }
+                )
             }
         }
     }
@@ -216,10 +245,12 @@ fun IntercomScreen(
 
 @Composable
 private fun IntercomTopBar(
+    callsign: String,
     isSessionActive: Boolean,
     audioRouting: AudioRoutingState,
     isMuted: Boolean,
     isLoopbackActive: Boolean,
+    onOpenCallsignDialog: () -> Unit,
     onToggleSession: () -> Unit,
     onToggleSco: () -> Unit,
     onToggleMute: () -> Unit,
@@ -233,12 +264,37 @@ private fun IntercomTopBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column {
-            Text(
-                text = "MeshRide",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "MeshRide",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(DarkSurfaceElevated)
+                        .clickable { onOpenCallsignDialog() }
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit Callsign",
+                        tint = AccentCyan,
+                        modifier = Modifier.size(11.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = callsign.uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = AccentCyan
+                    )
+                }
+            }
             Text(
                 text = when {
                     isLoopbackActive -> "OPUS LOOPBACK ACTIVE"
@@ -318,6 +374,64 @@ private fun IntercomTopBar(
 }
 
 @Composable
+private fun CallsignEditDialog(
+    currentCallsign: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var text by remember { mutableStateOf(currentCallsign) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Rider Callsign",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = "This handle is broadcast to nearby motorcycle riders during mesh intercom discovery.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { if (it.length <= 16) text = it },
+                    label = { Text("Callsign") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AccentCyan,
+                        unfocusedBorderColor = TextMuted,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(text) },
+                colors = ButtonDefaults.buttonColors(containerColor = AccentCyan)
+            ) {
+                Text("SAVE", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("CANCEL", color = TextSecondary)
+            }
+        },
+        containerColor = DarkSurfaceElevated
+    )
+}
+
+@Composable
 private fun TransmissionBanner(
     state: TransmissionState,
     isLoopbackActive: Boolean
@@ -393,6 +507,7 @@ private fun ModeSelectorGroup(
     selectedMode: IntercomMode,
     onModeSelected: (IntercomMode) -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -418,7 +533,10 @@ private fun ModeSelectorGroup(
                     .clip(RoundedCornerShape(8.dp))
                     .background(bg)
                     .pointerInput(mode) {
-                        detectTapGestures { onModeSelected(mode) }
+                        detectTapGestures {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onModeSelected(mode)
+                        }
                     }
                     .padding(vertical = 10.dp),
                 contentAlignment = Alignment.Center
@@ -447,6 +565,7 @@ private fun PttControlTarget(
     onPttChange: (Boolean) -> Unit,
     onToggleClick: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
     val isTransmitting = transmissionState == TransmissionState.TRANSMITTING ||
             transmissionState == TransmissionState.FULL_DUPLEX
 
@@ -480,8 +599,10 @@ private fun PttControlTarget(
                     IntercomMode.PUSH_TO_TALK -> {
                         detectTapGestures(
                             onPress = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onPttChange(true)
                                 tryAwaitRelease()
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 onPttChange(false)
                             }
                         )
@@ -489,6 +610,7 @@ private fun PttControlTarget(
                     IntercomMode.TOGGLE,
                     IntercomMode.ALWAYS_ON -> {
                         detectTapGestures {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onToggleClick()
                         }
                     }
@@ -521,7 +643,43 @@ private fun PttControlTarget(
 }
 
 @Composable
-private fun RiderMeshList(riders: List<Rider>, meshState: MeshState) {
+private fun SignalStrengthBars(
+    dbm: Int,
+    modifier: Modifier = Modifier
+) {
+    val activeBars = when {
+        dbm >= -65 -> 4
+        dbm >= -75 -> 3
+        dbm >= -85 -> 2
+        else -> 1
+    }
+
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.Bottom
+    ) {
+        for (i in 1..4) {
+            val barHeight = (4 + i * 2.5f).dp
+            val isFilled = i <= activeBars
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(barHeight)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(if (isFilled) AccentCyan else DarkSurfaceElevated)
+            )
+        }
+    }
+}
+
+@Composable
+private fun RiderMeshList(
+    riders: List<Rider>,
+    meshState: MeshState,
+    mutedPeerIds: Set<String>,
+    onToggleMutePeer: (String) -> Unit
+) {
     if (riders.isEmpty()) {
         Card(
             modifier = Modifier
@@ -567,14 +725,23 @@ private fun RiderMeshList(riders: List<Rider>, meshState: MeshState) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(riders, key = { it.id }) { rider ->
-                RiderItemRow(rider = rider)
+                RiderItemRow(
+                    rider = rider,
+                    isMuted = mutedPeerIds.contains(rider.id),
+                    onToggleMute = onToggleMutePeer
+                )
             }
         }
     }
 }
 
 @Composable
-private fun RiderItemRow(rider: Rider) {
+private fun RiderItemRow(
+    rider: Rider,
+    isMuted: Boolean,
+    onToggleMute: (String) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
@@ -592,31 +759,73 @@ private fun RiderItemRow(rider: Rider) {
                     modifier = Modifier
                         .size(10.dp)
                         .clip(CircleShape)
-                        .background(if (rider.isTransmitting) AccentGreen else AccentCyan)
+                        .background(
+                            when {
+                                isMuted -> TextMuted
+                                rider.isTransmitting -> AccentGreen
+                                else -> AccentCyan
+                            }
+                        )
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 Column {
-                    Text(
-                        text = if (rider.isLocalUser) "${rider.callsign} (You)" else rider.callsign,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary,
-                        fontSize = 14.sp
-                    )
-                    Text(
-                        text = "${rider.signalStrengthDbm} dBm • ${rider.latencyMs}ms",
-                        color = TextMuted,
-                        fontSize = 12.sp
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (rider.isLocalUser) "${rider.callsign} (You)" else rider.callsign,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isMuted) TextMuted else TextPrimary,
+                            fontSize = 14.sp
+                        )
+                        if (isMuted) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "MUTED",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = AccentRed,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SignalStrengthBars(dbm = rider.signalStrengthDbm)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "${rider.signalStrengthDbm} dBm • ${rider.latencyMs}ms",
+                            color = TextMuted,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
             }
 
-            if (rider.isTransmitting) {
-                Text(
-                    text = "SPEAKING",
-                    color = AccentGreen,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (rider.isTransmitting && !isMuted) {
+                    Text(
+                        text = "SPEAKING",
+                        color = AccentGreen,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                }
+
+                if (!rider.isLocalUser) {
+                    IconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleMute(rider.id)
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                            contentDescription = if (isMuted) "Unmute Rider" else "Mute Rider",
+                            tint = if (isMuted) AccentRed else TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
         }
     }

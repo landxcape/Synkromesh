@@ -53,6 +53,8 @@ class IntercomViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _errorFlow = MutableStateFlow<String?>(null)
+    private val _isCallsignDialogOpen = MutableStateFlow(false)
+    private val _mutedPeerIds = MutableStateFlow<Set<String>>(emptySet())
 
     val uiState: StateFlow<IntercomUiState> = combine(
         intercomRepository.observeIsSessionActive(),
@@ -64,12 +66,17 @@ class IntercomViewModel @Inject constructor(
         observePeersUseCase(),
         audioEngineRepository.observeIsLoopbackActive(),
         observeAudioLevelUseCase(),
+        preferencesDataSource.callsignFlow,
+        _isCallsignDialogOpen,
+        _mutedPeerIds,
         _errorFlow
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         val level = args[8] as AudioLevel
         @Suppress("UNCHECKED_CAST")
         val peers = args[6] as List<MeshPeer>
+        @Suppress("UNCHECKED_CAST")
+        val mutedPeers = args[11] as Set<String>
         val mappedRiders = peers.map { peer ->
             Rider(
                 id = peer.id,
@@ -91,7 +98,10 @@ class IntercomViewModel @Inject constructor(
             riders = mappedRiders,
             isLoopbackActive = args[7] as Boolean,
             micAudioLevel = level.normalizedLevel,
-            errorMessage = args[9] as String?
+            callsign = args[9] as String,
+            isCallsignDialogOpen = args[10] as Boolean,
+            mutedPeerIds = mutedPeers,
+            errorMessage = args[12] as String?
         )
     }.stateIn(
         scope = viewModelScope,
@@ -108,8 +118,30 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.ToggleSessionClicked -> onToggleSession()
                 is IntercomUiEvent.ToggleBluetoothScoClicked -> onToggleSco()
                 is IntercomUiEvent.ToggleLoopbackClicked -> onToggleLoopback()
+                is IntercomUiEvent.SetCallsignDialogVisible -> _isCallsignDialogOpen.value = event.isVisible
+                is IntercomUiEvent.SaveCallsign -> onSaveCallsign(event.callsign)
+                is IntercomUiEvent.TogglePeerMute -> onTogglePeerMute(event.peerId)
                 is IntercomUiEvent.ClearError -> _errorFlow.value = null
             }
+        }
+    }
+
+    private suspend fun onSaveCallsign(newCallsign: String) {
+        val trimmed = newCallsign.trim()
+        if (trimmed.isNotBlank()) {
+            preferencesDataSource.saveCallsign(trimmed).onFailure { err ->
+                _errorFlow.value = "Failed to save callsign: ${err.message}"
+            }
+        }
+        _isCallsignDialogOpen.value = false
+    }
+
+    private fun onTogglePeerMute(peerId: String) {
+        val current = _mutedPeerIds.value
+        _mutedPeerIds.value = if (current.contains(peerId)) {
+            current - peerId
+        } else {
+            current + peerId
         }
     }
 
