@@ -42,6 +42,7 @@ class IntercomRepositoryImpl @Inject constructor(
     }
 
     private var isToggleLatched = false
+    private var isPttPressed = false
 
     override fun observeTransmissionState(): Flow<TransmissionState> = _transmissionState.asStateFlow()
     override fun observeIntercomMode(): Flow<IntercomMode> = _intercomMode.asStateFlow()
@@ -50,7 +51,7 @@ class IntercomRepositoryImpl @Inject constructor(
     override fun observeIsSessionActive(): Flow<Boolean> = _isSessionActive.asStateFlow()
 
     override suspend fun setIntercomMode(mode: IntercomMode): Result<Unit> = runCatching {
-        val wasTransmitting = _transmissionState.value == TransmissionState.TRANSMITTING
+        val previousMode = _intercomMode.value
         _intercomMode.value = mode
         preferencesDataSource.saveDefaultMode(mode)
 
@@ -61,12 +62,14 @@ class IntercomRepositoryImpl @Inject constructor(
 
         when (mode) {
             IntercomMode.ALWAYS_ON -> {
+                // In Always On, mic is continuously open unless user is muted
                 _transmissionState.value = if (_isMuted.value) TransmissionState.IDLE else TransmissionState.TRANSMITTING
             }
             IntercomMode.TOGGLE -> {
-                // Preserves active transmission: if user was talking (PTT hold or open), latch it ON.
-                // If user was idle, keep it IDLE to avoid uncommanded mic leaks.
-                if (wasTransmitting && !_isMuted.value) {
+                // When switching to Toggle:
+                // Only latch ON if user was actively holding PTT (switching UP from active PTT hold).
+                // Switching down from ALWAYS_ON resets to unlatched (IDLE) so the mic does not stay stuck ON.
+                if (previousMode == IntercomMode.PUSH_TO_TALK && isPttPressed && !_isMuted.value) {
                     isToggleLatched = true
                     _transmissionState.value = TransmissionState.TRANSMITTING
                 } else {
@@ -75,11 +78,13 @@ class IntercomRepositoryImpl @Inject constructor(
                 }
             }
             IntercomMode.PUSH_TO_TALK -> {
-                // If already transmitting when switching to PTT, preserve transmission continuity
-                if (wasTransmitting && !_isMuted.value) {
-                    _transmissionState.value = TransmissionState.TRANSMITTING
+                // When switching to PTT, mic strictly follows PTT rules: active ONLY if PTT button is physically held.
+                // Switching down from TOGGLE or ALWAYS_ON immediately stops transmission.
+                isToggleLatched = false
+                _transmissionState.value = if (isPttPressed && !_isMuted.value) {
+                    TransmissionState.TRANSMITTING
                 } else {
-                    _transmissionState.value = TransmissionState.IDLE
+                    TransmissionState.IDLE
                 }
             }
         }
@@ -104,6 +109,7 @@ class IntercomRepositoryImpl @Inject constructor(
     }
 
     override suspend fun handlePttPress(isPressed: Boolean): Result<Unit> = runCatching {
+        isPttPressed = isPressed
         when (_intercomMode.value) {
             IntercomMode.PUSH_TO_TALK -> {
                 _transmissionState.value = if (isPressed && !_isMuted.value) TransmissionState.TRANSMITTING else TransmissionState.IDLE
@@ -128,6 +134,7 @@ class IntercomRepositoryImpl @Inject constructor(
     override suspend fun stopIntercomSession(): Result<Unit> = runCatching {
         _isSessionActive.value = false
         isToggleLatched = false
+        isPttPressed = false
         _transmissionState.value = TransmissionState.IDLE
     }
 
@@ -144,7 +151,7 @@ class IntercomRepositoryImpl @Inject constructor(
                 _transmissionState.value = if (isToggleLatched && !_isMuted.value) TransmissionState.TRANSMITTING else TransmissionState.IDLE
             }
             IntercomMode.PUSH_TO_TALK -> {
-                // Driven directly by handlePttPress
+                _transmissionState.value = if (isPttPressed && !_isMuted.value) TransmissionState.TRANSMITTING else TransmissionState.IDLE
             }
         }
     }

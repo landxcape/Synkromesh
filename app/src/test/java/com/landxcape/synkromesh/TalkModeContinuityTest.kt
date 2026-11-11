@@ -12,9 +12,11 @@ class TalkModeContinuityTest {
         var isSessionActive: Boolean = true
         var isMuted: Boolean = false
         var isToggleLatched: Boolean = false
+        var isPttPressed: Boolean = false
         var transmissionState: TransmissionState = TransmissionState.IDLE
 
         fun handlePttPress(isPressed: Boolean) {
+            isPttPressed = isPressed
             when (mode) {
                 IntercomMode.PUSH_TO_TALK -> {
                     transmissionState = if (isPressed && !isMuted) TransmissionState.TRANSMITTING else TransmissionState.IDLE
@@ -30,7 +32,7 @@ class TalkModeContinuityTest {
         }
 
         fun switchMode(newMode: IntercomMode) {
-            val wasTransmitting = transmissionState == TransmissionState.TRANSMITTING
+            val previousMode = mode
             mode = newMode
 
             if (!isSessionActive) {
@@ -43,7 +45,7 @@ class TalkModeContinuityTest {
                     transmissionState = if (isMuted) TransmissionState.IDLE else TransmissionState.TRANSMITTING
                 }
                 IntercomMode.TOGGLE -> {
-                    if (wasTransmitting && !isMuted) {
+                    if (previousMode == IntercomMode.PUSH_TO_TALK && isPttPressed && !isMuted) {
                         isToggleLatched = true
                         transmissionState = TransmissionState.TRANSMITTING
                     } else {
@@ -52,10 +54,11 @@ class TalkModeContinuityTest {
                     }
                 }
                 IntercomMode.PUSH_TO_TALK -> {
-                    if (wasTransmitting && !isMuted) {
-                        transmissionState = TransmissionState.TRANSMITTING
+                    isToggleLatched = false
+                    transmissionState = if (isPttPressed && !isMuted) {
+                        TransmissionState.TRANSMITTING
                     } else {
-                        transmissionState = TransmissionState.IDLE
+                        TransmissionState.IDLE
                     }
                 }
             }
@@ -88,9 +91,45 @@ class TalkModeContinuityTest {
         val harness = ModeTransitionHarness()
         harness.switchMode(IntercomMode.TOGGLE)
         harness.handlePttPress(isPressed = true) // Toggles latch ON
+        harness.handlePttPress(isPressed = false) // Release tap
         assertEquals(TransmissionState.TRANSMITTING, harness.transmissionState)
+        assertEquals(true, harness.isToggleLatched)
 
         harness.switchMode(IntercomMode.ALWAYS_ON)
         assertEquals(TransmissionState.TRANSMITTING, harness.transmissionState)
+    }
+
+    @Test
+    fun `switching down from ALWAYS_ON to TOGGLE resets transmission to IDLE`() {
+        val harness = ModeTransitionHarness()
+        harness.switchMode(IntercomMode.ALWAYS_ON)
+        assertEquals(TransmissionState.TRANSMITTING, harness.transmissionState)
+
+        harness.switchMode(IntercomMode.TOGGLE)
+        assertEquals(TransmissionState.IDLE, harness.transmissionState)
+        assertEquals(false, harness.isToggleLatched)
+    }
+
+    @Test
+    fun `switching down from ALWAYS_ON to PUSH_TO_TALK resets transmission to IDLE`() {
+        val harness = ModeTransitionHarness()
+        harness.switchMode(IntercomMode.ALWAYS_ON)
+        assertEquals(TransmissionState.TRANSMITTING, harness.transmissionState)
+
+        harness.switchMode(IntercomMode.PUSH_TO_TALK)
+        assertEquals(TransmissionState.IDLE, harness.transmissionState)
+    }
+
+    @Test
+    fun `switching down from active TOGGLE to PUSH_TO_TALK resets transmission to IDLE`() {
+        val harness = ModeTransitionHarness()
+        harness.switchMode(IntercomMode.TOGGLE)
+        harness.handlePttPress(isPressed = true) // Toggles latch ON
+        harness.handlePttPress(isPressed = false) // Release tap
+        assertEquals(TransmissionState.TRANSMITTING, harness.transmissionState)
+        assertEquals(true, harness.isToggleLatched)
+
+        harness.switchMode(IntercomMode.PUSH_TO_TALK)
+        assertEquals(TransmissionState.IDLE, harness.transmissionState)
     }
 }
