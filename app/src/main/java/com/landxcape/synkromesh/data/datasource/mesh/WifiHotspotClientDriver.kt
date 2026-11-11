@@ -2,6 +2,7 @@ package com.landxcape.synkromesh.data.datasource.mesh
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
@@ -65,17 +66,29 @@ class WifiHotspotClientDriver @Inject constructor(
             val callback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     super.onAvailable(network)
-                    manager.bindProcessToNetwork(network)
                     _hotspotNetwork.value = network
-                    _subnetBroadcastIp.value = computeSubnetBroadcast(network)
+                    updateSubnetBroadcast(network)
                     _isConnected.value = true
                     _connectedSsid.value = ssid
                     _clientState.value = HotspotClientState.CONNECTED
                 }
 
+                override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+                    super.onLinkPropertiesChanged(network, linkProperties)
+                    _hotspotNetwork.value = network
+                    val bcast = computeSubnetBroadcast(linkProperties)
+                    if (bcast != null) {
+                        _subnetBroadcastIp.value = bcast
+                    }
+                }
+
+                override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                    super.onCapabilitiesChanged(network, networkCapabilities)
+                    _hotspotNetwork.value = network
+                }
+
                 override fun onLost(network: Network) {
                     super.onLost(network)
-                    manager.bindProcessToNetwork(null)
                     _hotspotNetwork.value = null
                     _subnetBroadcastIp.value = null
                     _isConnected.value = false
@@ -98,8 +111,15 @@ class WifiHotspotClientDriver @Inject constructor(
         }
     }
 
-    private fun computeSubnetBroadcast(network: Network): String? {
-        val lp = connectivityManager?.getLinkProperties(network) ?: return null
+    private fun updateSubnetBroadcast(network: Network) {
+        val lp = connectivityManager?.getLinkProperties(network) ?: return
+        val bcast = computeSubnetBroadcast(lp)
+        if (bcast != null) {
+            _subnetBroadcastIp.value = bcast
+        }
+    }
+
+    private fun computeSubnetBroadcast(lp: LinkProperties): String? {
         val linkAddr = lp.linkAddresses.firstOrNull {
             it.address is java.net.Inet4Address
         } ?: return null
@@ -116,7 +136,6 @@ class WifiHotspotClientDriver @Inject constructor(
         val manager = connectivityManager ?: return@runCatching
         networkCallback?.let { callback ->
             try {
-                manager.bindProcessToNetwork(null)
                 manager.unregisterNetworkCallback(callback)
             } catch (_: Exception) {}
         }
