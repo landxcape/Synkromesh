@@ -59,7 +59,11 @@ import org.osmdroid.views.overlay.Polyline
 fun TacticalOsmMapView(
     riders: List<Rider>,
     modifier: Modifier = Modifier,
-    initialZoom: Double = 16.5
+    initialZoom: Double = 16.5,
+    showWatermark: Boolean = true,
+    showControls: Boolean = true,
+    controlsAlignment: Alignment = Alignment.BottomEnd,
+    controlsModifier: Modifier = Modifier.padding(16.dp)
 ) {
     val context = LocalContext.current
     var autoFollow by remember { mutableStateOf(true) }
@@ -169,95 +173,98 @@ fun TacticalOsmMapView(
         )
 
         // Overlay Map Controls (Auto-Follow & Zoom)
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Auto Follow Toggle Button
-            Surface(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .clickable {
-                        autoFollow = !autoFollow
-                        if (autoFollow) {
-                            mapViewRef?.controller?.animateTo(currentCenter)
-                        }
-                    },
-                color = if (autoFollow) AccentCyan else DarkSurface,
-                shape = CircleShape,
-                border = BorderStroke(1.dp, if (autoFollow) AccentCyan else BorderSubtle)
+        if (showControls) {
+            Column(
+                modifier = controlsModifier
+                    .align(controlsAlignment),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.MyLocation,
-                        contentDescription = "Center on me",
-                        tint = if (autoFollow) DarkBackground else AccentCyan,
-                        modifier = Modifier.size(20.dp)
-                    )
+                // Auto Follow Toggle Button
+                Surface(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .clickable {
+                            autoFollow = !autoFollow
+                            if (autoFollow) {
+                                mapViewRef?.controller?.animateTo(currentCenter)
+                            }
+                        },
+                    color = if (autoFollow) AccentCyan else DarkSurface,
+                    shape = CircleShape,
+                    border = BorderStroke(1.dp, if (autoFollow) AccentCyan else BorderSubtle)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.MyLocation,
+                            contentDescription = "Center on me",
+                            tint = if (autoFollow) DarkBackground else AccentCyan,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
-            }
 
-            // Zoom In
-            Surface(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .clickable { mapViewRef?.controller?.zoomIn() },
-                color = DarkSurface,
-                shape = CircleShape,
-                border = BorderStroke(1.dp, BorderSubtle)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Zoom in",
-                        tint = TextPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
+                // Zoom In
+                Surface(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .clickable { mapViewRef?.controller?.zoomIn() },
+                    color = DarkSurface,
+                    shape = CircleShape,
+                    border = BorderStroke(1.dp, BorderSubtle)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Zoom in",
+                            tint = TextPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
-            }
 
-            // Zoom Out
-            Surface(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .clickable { mapViewRef?.controller?.zoomOut() },
-                color = DarkSurface,
-                shape = CircleShape,
-                border = BorderStroke(1.dp, BorderSubtle)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Remove,
-                        contentDescription = "Zoom out",
-                        tint = TextPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
+                // Zoom Out
+                Surface(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .clickable { mapViewRef?.controller?.zoomOut() },
+                    color = DarkSurface,
+                    shape = CircleShape,
+                    border = BorderStroke(1.dp, BorderSubtle)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Remove,
+                            contentDescription = "Zoom out",
+                            tint = TextPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
 
         // Tactical Watermark & Tile Status
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(12.dp),
-            color = DarkBackground.copy(alpha = 0.85f),
-            shape = RoundedCornerShape(6.dp),
-            border = BorderStroke(1.dp, BorderSubtle)
-        ) {
-            Text(
-                text = "OSM TACTICAL // OFFLINE CACHE ACTIVE",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextMuted,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-            )
+        if (showWatermark) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(12.dp),
+                color = DarkBackground.copy(alpha = 0.85f),
+                shape = RoundedCornerShape(6.dp),
+                border = BorderStroke(1.dp, BorderSubtle)
+            ) {
+                Text(
+                    text = "OSM TACTICAL // OFFLINE CACHE ACTIVE",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextMuted,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
         }
     }
 }

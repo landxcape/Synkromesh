@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,8 +45,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fullscreen
@@ -219,6 +222,7 @@ fun LiveCockpitPage(
             ModalBottomSheet(
                 onDismissRequest = { isTacticalSettingsOpen = false },
                 containerColor = DarkSurfaceElevated,
+                contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
                 dragHandle = {
                     Box(
                         modifier = Modifier
@@ -624,9 +628,12 @@ private fun TacticalQuickSettingsSheet(
     onEvent: (IntercomUiEvent) -> Unit,
     onClose: () -> Unit
 ) {
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .verticalScroll(scrollState)
             .padding(horizontal = 20.dp, vertical = 8.dp)
             .navigationBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -1056,7 +1063,7 @@ private fun TacticalQuickSettingsSheet(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(32.dp))
     }
 }
 
@@ -1456,7 +1463,9 @@ private fun CockpitRadarOverlay(
                         .border(1.dp, BorderSubtle, RoundedCornerShape(14.dp))
                 ) {
                     TacticalOsmMapView(
-                        riders = riders
+                        riders = riders,
+                        controlsAlignment = Alignment.CenterEnd,
+                        controlsModifier = Modifier.padding(end = 10.dp)
                     )
 
                     // Floating Fullscreen Pill Button
@@ -1571,7 +1580,10 @@ private fun FullScreenTacticalMapOverlay(
         TacticalOsmMapView(
             riders = uiState.riders,
             modifier = Modifier.fillMaxSize(),
-            initialZoom = 16.5
+            initialZoom = 16.5,
+            showWatermark = false,
+            controlsAlignment = Alignment.CenterEnd,
+            controlsModifier = Modifier.padding(end = 16.dp)
         )
 
         // 2. Floating Top HUD Bar
