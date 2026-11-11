@@ -57,4 +57,23 @@ class ReplayWindowTest {
         assertFalse(replayWindow.isPacketAcceptable(10L))
         assertTrue(replayWindow.isPacketAcceptable(990L)) // Valid inside new window
     }
+
+    @Test
+    fun `packet loss calculation is 0 percent when all packets arrive in order`() {
+        for (i in 0L..63L) {
+            replayWindow.isPacketAcceptable(i)
+        }
+        org.junit.Assert.assertEquals(0f, replayWindow.getPacketLossPercentage(), 0.001f)
+    }
+
+    @Test
+    fun `packet loss calculation reflects missing packets`() {
+        // Send every other packet (50% loss over 64 frames: 0, 2, 4, ... 62)
+        for (i in 0L..62L step 2L) {
+            replayWindow.isPacketAcceptable(i)
+        }
+        // Highest is 62, effectiveWindow is 63, received 32, missing 31 -> ~49.2%
+        val loss = replayWindow.getPacketLossPercentage()
+        assertTrue("Loss should be roughly 49%", loss in 48f..51f)
+    }
 }

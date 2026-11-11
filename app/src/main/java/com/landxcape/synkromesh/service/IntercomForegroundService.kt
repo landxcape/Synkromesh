@@ -18,6 +18,7 @@ import com.landxcape.synkromesh.R
 import com.landxcape.synkromesh.data.datasource.audio.AudioToneFeedbackGenerator
 import com.landxcape.synkromesh.data.datasource.audio.FeedbackTone
 import com.landxcape.synkromesh.domain.model.MeshState
+import com.landxcape.synkromesh.domain.model.TransmissionState
 import com.landxcape.synkromesh.domain.repository.AudioEngineRepository
 import com.landxcape.synkromesh.domain.repository.BluetoothScoRepository
 import com.landxcape.synkromesh.domain.repository.IntercomRepository
@@ -28,6 +29,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -54,9 +60,17 @@ class IntercomForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + Job())
     private var peerMonitoringJob: Job? = null
+    private var powerMonitorJob: Job? = null
+    private var audioActivityMonitorJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var multicastLock: WifiManager.MulticastLock? = null
+
+    @Volatile
+    private var lastAudioActivityTimestampMs = System.currentTimeMillis()
+
+    @Volatile
+    private var isLowLatencyMode = true
 
     companion object {
         const val CHANNEL_ID = "synkromesh_intercom_channel"
@@ -64,6 +78,9 @@ class IntercomForegroundService : Service() {
         const val ACTION_START = "ACTION_START_INTERCOM"
         const val ACTION_STOP = "ACTION_STOP_INTERCOM"
         const val ACTION_STOP_AND_EXIT = "ACTION_STOP_AND_EXIT"
+
+        private val _isLowLatencyModeFlow = MutableStateFlow(true)
+        val isLowLatencyModeFlow: StateFlow<Boolean> = _isLowLatencyModeFlow.asStateFlow()
     }
 
     override fun onCreate() {
@@ -94,6 +111,7 @@ class IntercomForegroundService : Service() {
                 startForegroundWithNotification()
                 headsetMediaButtonManager.activateMediaSession()
                 startPeerNotificationMonitoring()
+                startAdaptivePowerMonitoring()
             }
         }
         return START_STICKY
@@ -102,6 +120,12 @@ class IntercomForegroundService : Service() {
     private fun teardownServiceSession() {
         peerMonitoringJob?.cancel()
         peerMonitoringJob = null
+        powerMonitorJob?.cancel()
+        powerMonitorJob = null
+        audioActivityMonitorJob?.cancel()
+        audioActivityMonitorJob = null
+        isLowLatencyMode = true
+        _isLowLatencyModeFlow.value = true
         serviceScope.launch {
             meshNetworkRepository.stopMeshSession()
             audioEngineRepository.stopAudioEngine()
@@ -215,16 +239,65 @@ class IntercomForegroundService : Service() {
     }
 
     private fun acquireWifiLock() {
+        setWifiLockMode(lowLatency = true)
+    }
+
+    private fun notifyAudioActivity() {
+        lastAudioActivityTimestampMs = System.currentTimeMillis()
+        if (!isLowLatencyMode) {
+            setWifiLockMode(lowLatency = true)
+        }
+    }
+
+    private fun setWifiLockMode(lowLatency: Boolean) {
+        if (isLowLatencyMode == lowLatency && wifiLock?.isHeld == true) return
+        isLowLatencyMode = lowLatency
+        _isLowLatencyModeFlow.value = lowLatency
+        wifiLock?.let { if (it.isHeld) it.release() }
         val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-        val lockType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+        val lockType = if (lowLatency) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                @Suppress("DEPRECATION")
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            }
         } else {
             @Suppress("DEPRECATION")
-            WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            WifiManager.WIFI_MODE_FULL
         }
         wifiLock = wifiManager?.createWifiLock(lockType, "Synkromesh::IntercomWifiLock")?.apply {
             setReferenceCounted(false)
             acquire()
+        }
+    }
+
+    private fun startAdaptivePowerMonitoring() {
+        audioActivityMonitorJob?.cancel()
+        audioActivityMonitorJob = serviceScope.launch {
+            launch {
+                meshNetworkRepository.observeIncomingAudioPackets().collect {
+                    notifyAudioActivity()
+                }
+            }
+            launch {
+                intercomRepository.observeTransmissionState().collect { txState ->
+                    if (txState == TransmissionState.TRANSMITTING) {
+                        notifyAudioActivity()
+                    }
+                }
+            }
+        }
+
+        powerMonitorJob?.cancel()
+        powerMonitorJob = serviceScope.launch {
+            while (isActive) {
+                delay(15_000L)
+                val now = System.currentTimeMillis()
+                if (isLowLatencyMode && (now - lastAudioActivityTimestampMs > 45_000L)) {
+                    setWifiLockMode(lowLatency = false)
+                }
+            }
         }
     }
 
@@ -242,6 +315,12 @@ class IntercomForegroundService : Service() {
         super.onTaskRemoved(rootIntent)
         peerMonitoringJob?.cancel()
         peerMonitoringJob = null
+        powerMonitorJob?.cancel()
+        powerMonitorJob = null
+        audioActivityMonitorJob?.cancel()
+        audioActivityMonitorJob = null
+        isLowLatencyMode = true
+        _isLowLatencyModeFlow.value = true
         serviceScope.launch {
             meshNetworkRepository.stopMeshSession()
             audioEngineRepository.stopAudioEngine()
@@ -257,6 +336,10 @@ class IntercomForegroundService : Service() {
 
     override fun onDestroy() {
         peerMonitoringJob?.cancel()
+        powerMonitorJob?.cancel()
+        audioActivityMonitorJob?.cancel()
+        isLowLatencyMode = true
+        _isLowLatencyModeFlow.value = true
         headsetMediaButtonManager.deactivateMediaSession()
         wakeLock?.let {
             if (it.isHeld) it.release()

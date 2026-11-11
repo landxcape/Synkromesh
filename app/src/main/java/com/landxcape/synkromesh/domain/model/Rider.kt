@@ -12,7 +12,8 @@ data class Rider(
     val relativeBearingDegrees: Float? = null,
     val altitudeMeters: Double? = null,
     val speedKmh: Float? = null,
-    val batteryPercent: Int? = null
+    val batteryPercent: Int? = null,
+    val packetLossPercent: Float = 0f
 ) {
     val formattedDistance: String
         get() = when {

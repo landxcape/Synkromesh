@@ -57,7 +57,8 @@ data class IntercomUiState(
     val peers: List<MeshPeer> = emptyList(),
     val riders: List<Rider> = emptyList(),
     val packToken: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val isLowLatencyPowerMode: Boolean = true
 )
 
 sealed interface IntercomUiEvent {

@@ -680,6 +680,84 @@ private fun AudioHardwareContent(
                     color = TextMuted
                 )
             }
+
+            // 5. Network & Power Diagnostics Card
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp)),
+                color = DarkBackground,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, BorderSubtle)
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "NETWORK & POWER DIAGNOSTICS",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextSecondary
+                        )
+
+                        Text(
+                            text = if (uiState.isLowLatencyPowerMode) "LOW LATENCY // PERFORMANCE" else "ECO POWER // 45s IDLE",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (uiState.isLowLatencyPowerMode) AccentGreen else AccentAmber
+                        )
+                    }
+
+                    val remoteRiders = uiState.riders.filter { !it.isLocalUser }
+                    if (remoteRiders.isEmpty()) {
+                        Text(
+                            text = "No active peers // Standing by for mesh traffic",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            color = TextMuted
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            for (rider in remoteRiders) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = rider.callsign.uppercase(),
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Text(
+                                            text = "RTT ${rider.latencyMs}ms",
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = AccentGreen
+                                        )
+                                        Text(
+                                            text = "LOSS ${rider.packetLossPercent.toInt()}%",
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (rider.packetLossPercent > 10f) AccentAmber else TextSecondary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 }
 

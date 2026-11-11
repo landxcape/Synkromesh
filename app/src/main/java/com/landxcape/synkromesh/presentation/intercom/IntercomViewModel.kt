@@ -30,6 +30,7 @@ import com.landxcape.synkromesh.domain.usecase.StartIntercomSessionUseCase
 import com.landxcape.synkromesh.domain.usecase.StopIntercomSessionUseCase
 import com.landxcape.synkromesh.domain.usecase.ToggleLoopbackUseCase
 import com.landxcape.synkromesh.domain.usecase.ToggleMicrophoneMuteUseCase
+import com.landxcape.synkromesh.service.IntercomForegroundService
 import com.landxcape.synkromesh.util.BatteryOptimizationManager
 import com.landxcape.synkromesh.util.HardwarePreflightManager
 import com.landxcape.synkromesh.util.PreflightStatus
@@ -100,7 +101,8 @@ class IntercomViewModel @Inject constructor(
         observePeersUseCase(),
         audioEngineRepository.observeIsLoopbackActive(),
         observeAudioLevelUseCase(),
-        audioEngineRepository.observeIsSpeakerphoneOn()
+        audioEngineRepository.observeIsSpeakerphoneOn(),
+        IntercomForegroundService.isLowLatencyModeFlow
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         BaseAudioMeshState(
@@ -113,7 +115,8 @@ class IntercomViewModel @Inject constructor(
             peers = args[6] as List<MeshPeer>,
             isLoopbackActive = args[7] as Boolean,
             micAudioLevel = (args[8] as AudioLevel).normalizedLevel,
-            isSpeakerphoneOn = args[9] as Boolean
+            isSpeakerphoneOn = args[9] as Boolean,
+            isLowLatencyPowerMode = args[10] as Boolean
         )
     }
 
@@ -195,13 +198,14 @@ class IntercomViewModel @Inject constructor(
                 isLocalUser = peer.isLocal,
                 isTransmitting = peer.isTransmitting,
                 signalStrengthDbm = peer.signalDbm,
-                latencyMs = 15L,
+                latencyMs = peer.rttMs?.toLong() ?: 15L,
                 estimatedDistanceMeters = peer.estimatedDistanceMeters,
                 relativePosition = relLabel,
                 relativeBearingDegrees = peer.relativeBearingDegrees,
                 altitudeMeters = peer.altitudeMeters,
                 speedKmh = peer.speedKmh,
-                batteryPercent = peer.batteryPercent
+                batteryPercent = peer.batteryPercent,
+                packetLossPercent = peer.packetLossPercent ?: 0f
             )
         }
 
@@ -240,7 +244,8 @@ class IntercomViewModel @Inject constructor(
             peers = audioMesh.peers,
             riders = mappedRiders,
             packToken = dialogs.packToken,
-            errorMessage = dialogs.errorMessage
+            errorMessage = dialogs.errorMessage,
+            isLowLatencyPowerMode = audioMesh.isLowLatencyPowerMode
         )
     }.stateIn(
         scope = viewModelScope,
@@ -511,7 +516,8 @@ class IntercomViewModel @Inject constructor(
         val peers: List<MeshPeer>,
         val isLoopbackActive: Boolean,
         val micAudioLevel: Float,
-        val isSpeakerphoneOn: Boolean
+        val isSpeakerphoneOn: Boolean,
+        val isLowLatencyPowerMode: Boolean
     )
 
     private data class UserPreferencesState(

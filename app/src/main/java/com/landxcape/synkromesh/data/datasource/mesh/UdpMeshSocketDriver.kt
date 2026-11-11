@@ -76,6 +76,7 @@ class UdpMeshSocketDriver @Inject constructor(
     private var derivedEncryptionKey: ByteArray? = null
 
     private val replayWindows = ConcurrentHashMap<String, ReplayWindow>()
+    private val lastReceivedTimestamps = ConcurrentHashMap<String, Long>()
 
     @Volatile
     private var cachedSenderHeaderBytes: ByteArray? = null
@@ -181,6 +182,7 @@ class UdpMeshSocketDriver @Inject constructor(
                 while (iterator.hasNext()) {
                     val entry = iterator.next()
                     if (now - entry.value.lastSeenTimestampMs > 6000L) {
+                        lastReceivedTimestamps.remove(entry.key)
                         iterator.remove()
                         changed = true
                     }
@@ -204,20 +206,23 @@ class UdpMeshSocketDriver @Inject constructor(
         bearingDegrees: Float? = null,
         batteryPercent: Int? = null
     ): Result<Unit> = runCatching {
-        if (lat != null && lon != null) {
-            val telemetryBuffer = ByteBuffer.allocate(33).apply {
-                order(ByteOrder.BIG_ENDIAN)
-                putDouble(lat)
-                putDouble(lon)
-                putDouble(alt ?: 0.0)
-                putFloat(speedKmh ?: 0f)
-                putFloat(bearingDegrees ?: 0f)
-                put((batteryPercent ?: 100).toByte())
+        val echoes = lastReceivedTimestamps.entries.take(4)
+        val echoByteSize = 1 + (echoes.size * 12)
+        val telemetryBuffer = ByteBuffer.allocate(33 + echoByteSize).apply {
+            order(ByteOrder.BIG_ENDIAN)
+            putDouble(lat ?: 0.0)
+            putDouble(lon ?: 0.0)
+            putDouble(alt ?: 0.0)
+            putFloat(speedKmh ?: 0f)
+            putFloat(bearingDegrees ?: 0f)
+            put((batteryPercent ?: 100).toByte())
+            put(echoes.size.toByte())
+            for (entry in echoes) {
+                putInt(entry.key.hashCode())
+                putLong(entry.value)
             }
-            sendDatagram(PACKET_TYPE_HEARTBEAT, 0L, telemetryBuffer.array())
-        } else {
-            sendDatagram(PACKET_TYPE_HEARTBEAT, 0L, ByteArray(0))
         }
+        sendDatagram(PACKET_TYPE_HEARTBEAT, 0L, telemetryBuffer.array())
     }
 
     private fun getActiveBroadcastAddresses(): List<InetAddress> {
@@ -358,6 +363,7 @@ class UdpMeshSocketDriver @Inject constructor(
             rawPayload
         }
         val payloadSize = payload.size
+        lastReceivedTimestamps[senderDeviceId] = timestamp
 
         val isSpeaking = (type == PACKET_TYPE_AUDIO && payloadSize > 0)
 
@@ -368,10 +374,11 @@ class UdpMeshSocketDriver @Inject constructor(
         var peerSpeed: Float? = null
         var peerBearing: Float? = null
         var peerBattery: Int? = null
+        var measuredRttMs: Int? = null
 
         if (type == PACKET_TYPE_HEARTBEAT && payloadSize >= 33) {
             try {
-                val tBuf = ByteBuffer.wrap(payload, 0, 33).order(ByteOrder.BIG_ENDIAN)
+                val tBuf = ByteBuffer.wrap(payload, 0, payloadSize).order(ByteOrder.BIG_ENDIAN)
                 val lat = tBuf.double
                 val lon = tBuf.double
                 val alt = tBuf.double
@@ -386,6 +393,23 @@ class UdpMeshSocketDriver @Inject constructor(
                     peerSpeed = spd
                     peerBearing = brg
                     peerBattery = bat
+                }
+
+                if (payloadSize > 33) {
+                    val echoCount = tBuf.get().toInt() and 0xFF
+                    val myHash = localDeviceId.hashCode()
+                    val now = System.currentTimeMillis()
+                    for (i in 0 until echoCount) {
+                        if (tBuf.remaining() < 12) break
+                        val targetHash = tBuf.int
+                        val echoTs = tBuf.long
+                        if (targetHash == myHash) {
+                            val rtt = (now - echoTs).toInt()
+                            if (rtt in 1..5000) {
+                                measuredRttMs = rtt
+                            }
+                        }
+                    }
                 }
             } catch (_: Exception) {}
         }
@@ -408,6 +432,8 @@ class UdpMeshSocketDriver @Inject constructor(
             Pair(null, null)
         }
 
+        val lossPercent = replayWindow.getPacketLossPercentage()
+
         // Update Peer Presence & Telemetry
         _udpPeersMap[senderDeviceId] = MeshPeer(
             id = senderDeviceId,
@@ -424,7 +450,9 @@ class UdpMeshSocketDriver @Inject constructor(
             bearingDegrees = peerBearing ?: existing?.bearingDegrees,
             batteryPercent = peerBattery ?: existing?.batteryPercent,
             estimatedDistanceMeters = calculatedDistance ?: existing?.estimatedDistanceMeters ?: LocationTelemetryDataSource.estimateDistanceRssiMeters(-55),
-            relativeBearingDegrees = calculatedRelBearing ?: existing?.relativeBearingDegrees
+            relativeBearingDegrees = calculatedRelBearing ?: existing?.relativeBearingDegrees,
+            rttMs = measuredRttMs ?: existing?.rttMs,
+            packetLossPercent = lossPercent
         )
         _udpPeersFlow.value = _udpPeersMap.values.toList()
 
@@ -451,6 +479,7 @@ class UdpMeshSocketDriver @Inject constructor(
         _udpPeersMap.clear()
         _udpPeersFlow.value = emptyList()
         replayWindows.clear()
+        lastReceivedTimestamps.clear()
         cachedSenderHeaderBytes = null
         derivedEncryptionKey = null
         cachedBroadcastTargets = emptyList()

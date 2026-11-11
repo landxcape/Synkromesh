@@ -52,4 +52,18 @@ class ReplayWindow(private val windowSize: Int = 64) {
         maxSeq = -1L
         windowBitmap = 0uL
     }
+
+    /**
+     * Calculates the packet loss percentage over the active window.
+     * Computes the ratio of missing packets to total expected packets in O(1) time.
+     */
+    @Synchronized
+    fun getPacketLossPercentage(): Float {
+        if (maxSeq == -1L || windowBitmap == 0uL) return 0f
+        val receivedCount = java.lang.Long.bitCount(windowBitmap.toLong())
+        val effectiveWindow = minOf(windowSize, (maxSeq + 1).toInt())
+        if (effectiveWindow <= 1) return 0f
+        val missingCount = effectiveWindow - receivedCount
+        return if (missingCount > 0) (missingCount.toFloat() / effectiveWindow.toFloat()) * 100f else 0f
+    }
 }

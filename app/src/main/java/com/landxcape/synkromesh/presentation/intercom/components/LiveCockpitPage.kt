@@ -138,6 +138,8 @@ fun LiveCockpitPage(
                 riderCount = uiState.riders.size,
                 isScoConnected = uiState.audioRouting.isScoConnected,
                 headsetName = uiState.audioRouting.connectedDeviceName,
+                isLowLatencyPower = uiState.isLowLatencyPowerMode,
+                remoteRiders = uiState.riders.filter { !it.isLocalUser },
                 onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
                 onOpenSettings = { isTacticalSettingsOpen = true }
             )
@@ -251,6 +253,8 @@ private fun CockpitStatusStrip(
     riderCount: Int,
     isScoConnected: Boolean,
     headsetName: String?,
+    isLowLatencyPower: Boolean,
+    remoteRiders: List<Rider>,
     onToggleSco: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
@@ -302,6 +306,41 @@ private fun CockpitStatusStrip(
                     fontWeight = FontWeight.Bold,
                     color = TextSecondary
                 )
+            }
+
+            // Center: Live Latency HUD & Power State
+            if (remoteRiders.isNotEmpty()) {
+                val minRtt = remoteRiders.map { it.latencyMs }.minOrNull() ?: 15L
+                val maxLoss = remoteRiders.map { it.packetLossPercent }.maxOrNull() ?: 0f
+                Surface(
+                    color = DarkSurfaceElevated,
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, if (maxLoss > 10f) AccentAmber.copy(alpha = 0.5f) else BorderSubtle)
+                ) {
+                    Text(
+                        text = "${minRtt}ms • ${maxLoss.toInt()}%" + if (!isLowLatencyPower) " • ECO" else "",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (maxLoss > 10f) AccentAmber else AccentGreen,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                    )
+                }
+            } else if (!isLowLatencyPower) {
+                Surface(
+                    color = DarkSurfaceElevated,
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, AccentAmber.copy(alpha = 0.5f))
+                ) {
+                    Text(
+                        text = "ECO POWER",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AccentAmber,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                    )
+                }
             }
 
             // Right: Bluetooth SCO indicator + Quick Settings Button
@@ -1156,8 +1195,9 @@ private fun CockpitRadarOverlay(
                                     fontSize = 13.sp,
                                     color = TextPrimary
                                 )
+                                val diagStr = if (!rider.isLocalUser) " • ${rider.latencyMs}ms • LOSS ${rider.packetLossPercent.toInt()}%" else ""
                                 Text(
-                                    text = "RANGE: ${rider.formattedDistance} ${rider.relativePosition ?: ""}",
+                                    text = "RANGE: ${rider.formattedDistance} ${rider.relativePosition ?: ""}$diagStr",
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 10.sp,
                                     color = TextSecondary
