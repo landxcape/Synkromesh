@@ -166,15 +166,6 @@ class IntercomForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val deleteIntent = PendingIntent.getService(
-            this,
-            1,
-            Intent(this, IntercomForegroundService::class.java).apply {
-                action = ACTION_STOP
-            },
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
         val stopExitIntent = PendingIntent.getService(
             this,
             2,
@@ -189,8 +180,7 @@ class IntercomForegroundService : Service() {
             .setContentText(statusText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(openAppIntent)
-            .setDeleteIntent(deleteIntent)
-            .setOngoing(false)
+            .setOngoing(true)
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 "STOP & EXIT",

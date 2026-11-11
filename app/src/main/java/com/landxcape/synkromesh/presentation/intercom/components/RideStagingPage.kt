@@ -131,17 +131,24 @@ fun RideStagingPage(
         }
     }
 
-    // Keep pager synced if external state changes groupingMode (e.g. from QR scan) without fighting gesture
+    // Auto-snap safeguard: prevents pager from getting stranded at fractional offsets
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.isScrollInProgress }.collect { isScrolling ->
+            if (!isScrolling && kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.01f) {
+                pagerState.animateScrollToPage(pagerState.currentPage)
+            }
+        }
+    }
+
+    // Keep pager synced if external state changes groupingMode (e.g. from QR scan) without fighting user gestures
     LaunchedEffect(uiState.groupingMode) {
-        if (!pagerState.isScrollInProgress) {
-            val targetIndex = when (uiState.groupingMode) {
-                GroupingMode.OPEN_MESH -> if (pagerState.currentPage == 0) 0 else 1
-                GroupingMode.LEAD -> 2
-                GroupingMode.JOIN -> 3
-            }
-            if (pagerState.currentPage != targetIndex) {
-                pagerState.animateScrollToPage(targetIndex)
-            }
+        val expectedPage = when (uiState.groupingMode) {
+            GroupingMode.OPEN_MESH -> if (pagerState.currentPage in 0..1) pagerState.currentPage else 1
+            GroupingMode.LEAD -> 2
+            GroupingMode.JOIN -> 3
+        }
+        if (pagerState.settledPage != expectedPage && pagerState.targetPage != expectedPage && !pagerState.isScrollInProgress) {
+            pagerState.animateScrollToPage(expectedPage)
         }
     }
 
@@ -176,7 +183,7 @@ fun RideStagingPage(
 
                 // 2. Perfectly Aligned 4-Segment Tabs
                 BalancedSegmentedTabs(
-                    selectedPage = pagerState.currentPage,
+                    selectedPage = pagerState.targetPage,
                     onSelectPage = { pageIndex ->
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         coroutineScope.launch {
@@ -250,14 +257,14 @@ fun RideStagingPage(
             ) {
                 PrecisionActionButton(
                     text = "START INTERCOM",
-                    subtext = when (pagerState.currentPage) {
+                    subtext = when (pagerState.targetPage) {
                         0 -> "ENGAGE MESH // AUDIO PREFLIGHT READY"
                         1 -> "ENGAGE OPEN MESH // CH 0${uiState.rideChannel}"
                         2 -> "BROADCASTING LEAD PACK // CH 0${uiState.rideChannel}"
                         3 -> "AUTO-SYNC WITH LEAD // CH 0${uiState.rideChannel}"
                         else -> "ENGAGE MESH"
                     },
-                    isOnline = pagerState.currentPage == 2 && uiState.isHotspotActive,
+                    isOnline = pagerState.targetPage == 2 && uiState.isHotspotActive,
                     isLoading = uiState.isSessionEngaging,
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
