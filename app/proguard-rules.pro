@@ -27,3 +27,12 @@
 # Hilt Dependency Injection
 -keep class * extends dagger.hilt.internal.GeneratedComponent { *; }
 -keep class dagger.hilt.** { *; }
+
+# Release Logging Stripping (strip verbose, debug, info, and warning logs in release builds)
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+    public static int w(...);
+}

@@ -1,5 +1,7 @@
 package com.landxcape.synkromesh.data.datasource.mesh
 
+import com.landxcape.synkromesh.data.datasource.mesh.security.PackTokenAuthenticator
+import com.landxcape.synkromesh.data.datasource.mesh.security.ReplayWindow
 import com.landxcape.synkromesh.domain.model.AudioPacket
 import com.landxcape.synkromesh.domain.model.MeshPeer
 import android.net.Network
@@ -46,9 +48,67 @@ class UdpMeshSocketDriver @Inject constructor(
     private var datagramSocket: DatagramSocket? = null
 
     var localDeviceId: String = ""
+        set(value) {
+            field = value
+            invalidateSenderHeader()
+        }
     var localCallsign: String = "Rider"
+        set(value) {
+            field = value
+            invalidateSenderHeader()
+        }
     var activeChannel: Int = 1
+        set(value) {
+            field = value
+            invalidateSenderHeader()
+        }
     var activePackToken: String? = null
+        set(value) {
+            field = value
+            invalidateSenderHeader()
+        }
+
+    private val replayWindows = ConcurrentHashMap<String, ReplayWindow>()
+
+    @Volatile
+    private var cachedSenderHeaderBytes: ByteArray? = null
+    private val headerLock = Any()
+
+    private val sendBuffer = ByteBuffer.allocate(MAX_DATAGRAM_SIZE).apply {
+        order(ByteOrder.BIG_ENDIAN)
+    }
+    private val sendLock = Any()
+
+    @Volatile
+    private var cachedBroadcastTargets: List<InetAddress> = emptyList()
+    private var lastBroadcastRefreshTime = 0L
+
+    private fun invalidateSenderHeader() {
+        synchronized(headerLock) {
+            val token = activePackToken
+            val tokenSig = if (!token.isNullOrBlank()) {
+                "|${PackTokenAuthenticator.computeTokenSignature(token, "$localDeviceId|$activeChannel")}"
+            } else ""
+            val tag = "$localDeviceId|$localCallsign|$activeChannel$tokenSig"
+            cachedSenderHeaderBytes = tag.toByteArray(Charsets.UTF_8)
+        }
+    }
+
+    private fun getSenderHeaderBytes(): ByteArray {
+        return cachedSenderHeaderBytes ?: run {
+            invalidateSenderHeader()
+            cachedSenderHeaderBytes!!
+        }
+    }
+
+    private fun getCachedBroadcastAddresses(): List<InetAddress> {
+        val now = System.currentTimeMillis()
+        if (cachedBroadcastTargets.isEmpty() || now - lastBroadcastRefreshTime > 15_000L) {
+            cachedBroadcastTargets = getActiveBroadcastAddresses()
+            lastBroadcastRefreshTime = now
+        }
+        return cachedBroadcastTargets
+    }
 
     private val _incomingAudioFlow = MutableSharedFlow<AudioPacket>(extraBufferCapacity = 32)
     val incomingAudioFlow: SharedFlow<AudioPacket> = _incomingAudioFlow.asSharedFlow()
@@ -178,29 +238,30 @@ class UdpMeshSocketDriver @Inject constructor(
 
     private fun sendDatagram(type: Byte, seq: Long, payload: ByteArray) {
         val socket = datagramSocket ?: return
-        val tokenPart = if (!activePackToken.isNullOrBlank()) "|${activePackToken.hashCode()}" else ""
-        val senderTag = "$localDeviceId|$localCallsign|$activeChannel$tokenPart"
-        val senderBytes = senderTag.toByteArray(Charsets.UTF_8)
+        val senderBytes = getSenderHeaderBytes()
+        val totalSize = 2 + 1 + 8 + 8 + 1 + senderBytes.size + payload.size
+        if (totalSize > MAX_DATAGRAM_SIZE) return
 
-        val buffer = ByteBuffer.allocate(2 + 1 + 8 + 8 + 1 + senderBytes.size + payload.size).apply {
-            order(ByteOrder.BIG_ENDIAN)
-            putShort(MAGIC_HEADER)
-            put(type)
-            putLong(seq)
-            putLong(System.currentTimeMillis())
-            put(senderBytes.size.toByte())
-            put(senderBytes)
-            put(payload)
+        val data: ByteArray
+        synchronized(sendLock) {
+            sendBuffer.clear()
+            sendBuffer.putShort(MAGIC_HEADER)
+            sendBuffer.put(type)
+            sendBuffer.putLong(seq)
+            sendBuffer.putLong(System.currentTimeMillis())
+            sendBuffer.put(senderBytes.size.toByte())
+            sendBuffer.put(senderBytes)
+            sendBuffer.put(payload)
+            data = sendBuffer.array().copyOf(totalSize)
         }
 
-        val data = buffer.array()
         if (broadcastTarget.hostAddress != "255.255.255.255") {
             try {
                 val datagram = DatagramPacket(data, data.size, broadcastTarget, UDP_PORT)
                 socket.send(datagram)
             } catch (_: Exception) {}
         } else {
-            val targets = getActiveBroadcastAddresses()
+            val targets = getCachedBroadcastAddresses()
             for (target in targets) {
                 try {
                     val datagram = DatagramPacket(data, data.size, target, UDP_PORT)
@@ -245,14 +306,17 @@ class UdpMeshSocketDriver @Inject constructor(
             return
         }
 
-        // CRITICAL 3: AUTHENTICATE PACK TOKEN (Rejects rogue packets with mismatched tokens)
+        // CRITICAL 3: AUTHENTICATE PACK TOKEN (Enforces strict HMAC token validation)
         val expectedToken = activePackToken
-        if (!expectedToken.isNullOrBlank() && !senderTokenHash.isNullOrBlank()) {
-            val expectedHash = expectedToken.hashCode().toString()
-            if (senderTokenHash != expectedHash) {
-                // Drop rogue or unauthenticated packet
-                return
-            }
+        val packetAuthData = "$senderDeviceId|$senderChannel"
+        if (!PackTokenAuthenticator.isSignatureValid(expectedToken, senderTokenHash, packetAuthData)) {
+            return
+        }
+
+        // CRITICAL 4: SLIDING-WINDOW REPLAY FILTER (Drops duplicate, stale, or replayed packets)
+        val replayWindow = replayWindows.computeIfAbsent(senderDeviceId) { ReplayWindow() }
+        if (!replayWindow.isPacketAcceptable(seq)) {
+            return
         }
 
         val payloadSize = buffer.remaining()
@@ -350,5 +414,8 @@ class UdpMeshSocketDriver @Inject constructor(
         datagramSocket = null
         _udpPeersMap.clear()
         _udpPeersFlow.value = emptyList()
+        replayWindows.clear()
+        cachedSenderHeaderBytes = null
+        cachedBroadcastTargets = emptyList()
     }
 }
