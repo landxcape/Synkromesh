@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -131,16 +132,7 @@ fun RideStagingPage(
         }
     }
 
-    // Auto-snap safeguard: prevents pager from getting stranded at fractional offsets
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.isScrollInProgress }.collect { isScrolling ->
-            if (!isScrolling && kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.01f) {
-                pagerState.animateScrollToPage(pagerState.currentPage)
-            }
-        }
-    }
-
-    // Keep pager synced if external state changes groupingMode (e.g. from QR scan) without fighting user gestures
+    // Keep pager synced if external state changes groupingMode (e.g. from QR scan)
     LaunchedEffect(uiState.groupingMode) {
         val expectedPage = when (uiState.groupingMode) {
             GroupingMode.OPEN_MESH -> if (pagerState.currentPage in 0..1) pagerState.currentPage else 1
@@ -195,13 +187,12 @@ fun RideStagingPage(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 3. Swappable Horizontal Pager (Full-screen swipable anywhere on the body)
+            // 3. Swappable Horizontal Pager (Full-bleed viewport; pages own their horizontal padding)
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
             ) { page ->
                 when (page) {
                     0 -> AudioHardwareContent(
@@ -454,7 +445,7 @@ private fun AudioHardwareContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(vertical = 4.dp)
+            .padding(horizontal = 20.dp, vertical = 4.dp)
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -702,7 +693,7 @@ private fun OpenMeshContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(vertical = 4.dp)
+            .padding(horizontal = 20.dp, vertical = 4.dp)
             .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -846,7 +837,7 @@ private fun LeadPackContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(vertical = 4.dp)
+            .padding(horizontal = 20.dp, vertical = 4.dp)
             .verticalScroll(scrollState),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -1109,7 +1100,7 @@ private fun JoinPackContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(vertical = 4.dp)
+            .padding(horizontal = 20.dp, vertical = 4.dp)
             .verticalScroll(scrollState),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)

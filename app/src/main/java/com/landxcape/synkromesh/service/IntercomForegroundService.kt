@@ -181,6 +181,8 @@ class IntercomForegroundService : Service() {
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(openAppIntent)
             .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 "STOP & EXIT",

@@ -99,6 +99,12 @@ fun IntercomRoute(
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.onEvent(IntercomUiEvent.RefreshPreflightAndDevices)
+        if (uiState.isSessionActive) {
+            val refreshIntent = Intent(context, IntercomForegroundService::class.java).apply {
+                action = IntercomForegroundService.ACTION_START
+            }
+            ContextCompat.startForegroundService(context, refreshIntent)
+        }
     }
 
     LaunchedEffect(uiState.isSessionActive) {
