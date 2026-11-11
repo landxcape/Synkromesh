@@ -47,8 +47,10 @@ data class IntercomUiState(
     val rideChannel: Int = 1,
     val vadThreshold: Float = 0.05f,
     val opusBitrate: Int = 16,
-    val helmetProfile: HelmetAcousticProfile = HelmetAcousticProfile.MODULAR_URBAN,
+    val helmetProfile: HelmetAcousticProfile = HelmetAcousticProfile.STANDARD_FLAT,
     val dynamicGain: Float = 1.0f,
+    val isSpeedGainEnabled: Boolean = true,
+    val isMapFullscreen: Boolean = false,
     val isCallsignDialogOpen: Boolean = false,
     val isSettingsOpen: Boolean = false,
     val isConnectionSetupOpen: Boolean = false,
@@ -96,4 +98,6 @@ sealed interface IntercomUiEvent {
     data object ToggleRadarOverlay : IntercomUiEvent
     data object ClearError : IntercomUiEvent
     data object ToggleVirtualSimulation : IntercomUiEvent
+    data class ToggleSpeedGain(val enabled: Boolean) : IntercomUiEvent
+    data class SetMapFullscreen(val isFullscreen: Boolean) : IntercomUiEvent
 }

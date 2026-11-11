@@ -1,5 +1,6 @@
 package com.landxcape.synkromesh.presentation.intercom.components
 
+import com.landxcape.synkromesh.BuildConfig
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -611,7 +612,7 @@ private fun AudioHardwareContent(
                 }
             }
 
-            // 3. Helmet Acoustic Profile & Dynamic Speed Gain Boost Card (Nepali Calibrated)
+            // 3. Helmet Acoustic Profile & Dynamic Speed Gain Card
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -620,32 +621,49 @@ private fun AudioHardwareContent(
                 shape = RoundedCornerShape(10.dp),
                 border = BorderStroke(1.dp, BorderSubtle)
             ) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // Header with Master Speed Gain Status
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "HELMET ACOUSTIC PROFILE",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextSecondary
-                        )
+                        Column {
+                            Text(
+                                text = "HELMET ACOUSTIC PROFILE",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextSecondary
+                            )
+                            Text(
+                                text = "Voice tuning & wind rejection",
+                                fontSize = 9.sp,
+                                color = TextMuted
+                            )
+                        }
 
-                        Text(
-                            text = String.format("%.1fx SPEED GAIN", uiState.dynamicGain),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (uiState.dynamicGain > 1.05f) AccentAmber else AccentCyan
-                        )
+                        // Real-time gain status badge
+                        Surface(
+                            color = if (uiState.isSpeedGainEnabled && uiState.dynamicGain > 1.05f) AccentAmber.copy(alpha = 0.15f) else DarkSurface,
+                            shape = RoundedCornerShape(6.dp),
+                            border = BorderStroke(1.dp, if (uiState.isSpeedGainEnabled && uiState.dynamicGain > 1.05f) AccentAmber else BorderSubtle)
+                        ) {
+                            Text(
+                                text = if (!uiState.isSpeedGainEnabled) "FLAT (1.0x)" else String.format(java.util.Locale.US, "%.1fx BOOST", uiState.dynamicGain),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (!uiState.isSpeedGainEnabled) TextMuted else if (uiState.dynamicGain > 1.05f) AccentAmber else AccentCyan,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                            )
+                        }
                     }
 
+                    // 4-Segment Profile Selector
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         HelmetAcousticProfile.entries.forEach { profile ->
                             val isSelected = profile == uiState.helmetProfile
@@ -659,24 +677,26 @@ private fun AudioHardwareContent(
                                 border = BorderStroke(1.dp, if (isSelected) AccentCyan else BorderSubtle)
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 2.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Text(
                                         text = when (profile) {
+                                            HelmetAcousticProfile.STANDARD_FLAT -> "NORMAL"
                                             HelmetAcousticProfile.FULL_FACE_QUIET -> "FULL-FACE"
                                             HelmetAcousticProfile.MODULAR_URBAN -> "MODULAR"
                                             HelmetAcousticProfile.OPEN_FACE_CRUISER -> "OPEN-WIND"
                                         },
-                                        fontSize = 10.sp,
+                                        fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isSelected) AccentCyan else TextPrimary
+                                        color = if (isSelected) AccentCyan else TextPrimary,
+                                        maxLines = 1
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = "${profile.opusBitrateKbps}k",
                                         fontFamily = FontFamily.Monospace,
-                                        fontSize = 9.sp,
+                                        fontSize = 8.sp,
                                         color = TextMuted
                                     )
                                 }
@@ -684,11 +704,54 @@ private fun AudioHardwareContent(
                         }
                     }
 
-                    Text(
-                        text = "⚡ Nepali Road Curve: 0..20 km/h: 1.0x (0 dB) • 20..45 km/h: +3 dB • 45..70+ km/h: +6 dB max",
-                        fontSize = 9.sp,
-                        color = TextMuted
-                    )
+                    // Dynamic Speed Boost Master Toggle Switch
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onEvent(IntercomUiEvent.ToggleSpeedGain(!uiState.isSpeedGainEnabled)) },
+                        color = DarkSurface,
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, if (uiState.isSpeedGainEnabled) AccentCyan.copy(alpha = 0.5f) else BorderSubtle)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "DYNAMIC SPEED BOOST",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (uiState.isSpeedGainEnabled) TextPrimary else TextMuted
+                                )
+                                Text(
+                                    text = if (uiState.isSpeedGainEnabled) "Auto-boosts volume (+0 to +6 dB) with riding velocity" else "Disabled • Fixed flat audio output",
+                                    fontSize = 9.sp,
+                                    color = TextMuted
+                                )
+                            }
+
+                            Surface(
+                                color = if (uiState.isSpeedGainEnabled) AccentCyan else DarkBackground,
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, if (uiState.isSpeedGainEnabled) AccentCyan else BorderSubtle)
+                            ) {
+                                Text(
+                                    text = if (uiState.isSpeedGainEnabled) "AUTO" else "OFF",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = if (uiState.isSpeedGainEnabled) DarkBackground else TextMuted,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -841,54 +904,56 @@ private fun AudioHardwareContent(
                 }
             }
 
-            // 6. Virtual Convoy Ride Simulator Card
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable { onEvent(IntercomUiEvent.ToggleVirtualSimulation) },
-                color = if (uiState.isSimulating) AccentAmber.copy(alpha = 0.15f) else DarkBackground,
-                shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.dp, if (uiState.isSimulating) AccentAmber else BorderSubtle)
-            ) {
-                Row(
+            // 6. Virtual Convoy Ride Simulator Card (Debug Harness Only)
+            if (BuildConfig.DEBUG) {
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onEvent(IntercomUiEvent.ToggleVirtualSimulation) },
+                    color = if (uiState.isSimulating) AccentAmber.copy(alpha = 0.15f) else DarkBackground,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, if (uiState.isSimulating) AccentAmber else BorderSubtle)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(if (uiState.isSimulating) AccentAmber else TextMuted)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "VIRTUAL CONVOY SIMULATOR",
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(if (uiState.isSimulating) AccentAmber else TextMuted)
                             )
-                            Text(
-                                text = if (uiState.isSimulating) "Simulating Apex Lead, Mid Relay & Sweeper" else "Test map, radar, relays & audio gain",
-                                fontSize = 10.sp,
-                                color = TextMuted
-                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "VIRTUAL CONVOY SIMULATOR",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = if (uiState.isSimulating) "Simulating Apex Lead, Mid Relay & Sweeper" else "Test map, radar, relays & audio gain",
+                                    fontSize = 10.sp,
+                                    color = TextMuted
+                                )
+                            }
                         }
-                    }
 
-                    Text(
-                        text = if (uiState.isSimulating) "STOP" else "SIMULATE",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Black,
-                        color = if (uiState.isSimulating) AccentAmber else AccentCyan
-                    )
+                        Text(
+                            text = if (uiState.isSimulating) "STOP" else "SIMULATE",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            color = if (uiState.isSimulating) AccentAmber else AccentCyan
+                        )
+                    }
                 }
             }
         }

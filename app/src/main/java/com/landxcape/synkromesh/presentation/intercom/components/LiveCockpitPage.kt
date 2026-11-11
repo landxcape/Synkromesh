@@ -1,6 +1,7 @@
 package com.landxcape.synkromesh.presentation.intercom.components
 
 import androidx.activity.compose.BackHandler
+import com.landxcape.synkromesh.BuildConfig
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -23,6 +24,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +48,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
@@ -235,14 +240,28 @@ fun LiveCockpitPage(
 
         // Full 2D Tactical Radar Overlay (when tapped)
         AnimatedVisibility(
-            visible = uiState.isRadarOverlayActive,
+            visible = uiState.isRadarOverlayActive && !uiState.isMapFullscreen,
             enter = fadeIn(tween(180)) + slideInVertically(initialOffsetY = { it / 3 }),
             exit = fadeOut(tween(150)) + slideOutVertically(targetOffsetY = { it / 3 })
         ) {
             CockpitRadarOverlay(
                 riders = uiState.riders,
                 meshState = uiState.meshState,
-                onClose = { onEvent(IntercomUiEvent.ToggleRadarOverlay) }
+                onClose = { onEvent(IntercomUiEvent.ToggleRadarOverlay) },
+                onExpandFullscreen = { onEvent(IntercomUiEvent.SetMapFullscreen(true)) }
+            )
+        }
+
+        // Fullscreen Tactical Map Overlay
+        AnimatedVisibility(
+            visible = uiState.isMapFullscreen,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(150))
+        ) {
+            FullScreenTacticalMapOverlay(
+                uiState = uiState,
+                onEvent = onEvent,
+                onCollapse = { onEvent(IntercomUiEvent.SetMapFullscreen(false)) }
             )
         }
     }
@@ -821,40 +840,55 @@ private fun TacticalQuickSettingsSheet(
             }
         }
 
-        // 3. Helmet Acoustic Profile & Dynamic Speed Gain Boost (Nepali Calibrated)
+        // 3. Helmet Acoustic Profile & Dynamic Speed Gain
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = DarkSurface,
             shape = RoundedCornerShape(12.dp),
             border = BorderStroke(1.dp, BorderSubtle)
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "HELMET ACOUSTIC PROFILE",
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextSecondary
-                    )
-                    Text(
-                        text = String.format("%.1fx GAIN BOOST", uiState.dynamicGain),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (uiState.dynamicGain > 1.05f) AccentAmber else AccentCyan
-                    )
+                    Column {
+                        Text(
+                            text = "HELMET ACOUSTIC PROFILE",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextSecondary
+                        )
+                        Text(
+                            text = "Voice tuning & wind rejection",
+                            fontSize = 9.sp,
+                            color = TextMuted
+                        )
+                    }
+
+                    // Real-time gain status badge
+                    Surface(
+                        color = if (uiState.isSpeedGainEnabled && uiState.dynamicGain > 1.05f) AccentAmber.copy(alpha = 0.15f) else DarkBackground,
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, if (uiState.isSpeedGainEnabled && uiState.dynamicGain > 1.05f) AccentAmber else BorderSubtle)
+                    ) {
+                        Text(
+                            text = if (!uiState.isSpeedGainEnabled) "FLAT (1.0x)" else String.format(java.util.Locale.US, "%.1fx BOOST", uiState.dynamicGain),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (!uiState.isSpeedGainEnabled) TextMuted else if (uiState.dynamicGain > 1.05f) AccentAmber else AccentCyan,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
+                // 4-Segment Profile Selector
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     HelmetAcousticProfile.entries.forEach { profile ->
                         val isSelected = profile == uiState.helmetProfile
@@ -868,80 +902,134 @@ private fun TacticalQuickSettingsSheet(
                             border = BorderStroke(1.dp, if (isSelected) AccentCyan else BorderSubtle)
                         ) {
                             Column(
-                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 2.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
                                     text = when (profile) {
+                                        HelmetAcousticProfile.STANDARD_FLAT -> "NORMAL"
                                         HelmetAcousticProfile.FULL_FACE_QUIET -> "FULL-FACE"
                                         HelmetAcousticProfile.MODULAR_URBAN -> "MODULAR"
                                         HelmetAcousticProfile.OPEN_FACE_CRUISER -> "OPEN-WIND"
                                     },
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) AccentCyan else TextPrimary
-                                )
-                                Text(
-                                    text = "${profile.opusBitrateKbps} kbps",
-                                    fontFamily = FontFamily.Monospace,
                                     fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) AccentCyan else TextPrimary,
+                                    maxLines = 1
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "${profile.opusBitrateKbps}k",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 8.sp,
                                     color = TextMuted
                                 )
                             }
                         }
                     }
                 }
+
+                // Dynamic Speed Boost Master Toggle Switch
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onEvent(IntercomUiEvent.ToggleSpeedGain(!uiState.isSpeedGainEnabled)) },
+                    color = DarkBackground,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, if (uiState.isSpeedGainEnabled) AccentCyan.copy(alpha = 0.5f) else BorderSubtle)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "DYNAMIC SPEED BOOST",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (uiState.isSpeedGainEnabled) TextPrimary else TextMuted
+                            )
+                            Text(
+                                text = if (uiState.isSpeedGainEnabled) "Auto-boosts volume with riding speed" else "Disabled • Fixed flat audio",
+                                fontSize = 9.sp,
+                                color = TextMuted
+                            )
+                        }
+
+                        Surface(
+                            color = if (uiState.isSpeedGainEnabled) AccentCyan else DarkSurface,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, if (uiState.isSpeedGainEnabled) AccentCyan else BorderSubtle)
+                        ) {
+                            Text(
+                                text = if (uiState.isSpeedGainEnabled) "AUTO" else "OFF",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (uiState.isSpeedGainEnabled) DarkBackground else TextMuted,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
 
-        // Virtual Convoy Ride Simulator
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .clickable { onEvent(IntercomUiEvent.ToggleVirtualSimulation) },
-            color = if (uiState.isSimulating) AccentAmber.copy(alpha = 0.15f) else DarkSurface,
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, if (uiState.isSimulating) AccentAmber else BorderSubtle)
-        ) {
-            Row(
+        // Virtual Convoy Ride Simulator (Debug Only)
+        if (BuildConfig.DEBUG) {
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onEvent(IntercomUiEvent.ToggleVirtualSimulation) },
+                color = if (uiState.isSimulating) AccentAmber.copy(alpha = 0.15f) else DarkSurface,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, if (uiState.isSimulating) AccentAmber else BorderSubtle)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(if (uiState.isSimulating) AccentAmber else TextMuted)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "CONVOY SIMULATION",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(if (uiState.isSimulating) AccentAmber else TextMuted)
                         )
-                        Text(
-                            text = if (uiState.isSimulating) "Apex, Mid Relay & Sweeper Active" else "Simulate 3 nodes & 2-hop relay",
-                            fontSize = 10.sp,
-                            color = TextMuted
-                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "CONVOY SIMULATION",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = if (uiState.isSimulating) "Apex, Mid Relay & Sweeper Active" else "Simulate 3 nodes & 2-hop relay",
+                                fontSize = 10.sp,
+                                color = TextMuted
+                            )
+                        }
                     }
-                }
 
-                Text(
-                    text = if (uiState.isSimulating) "STOP" else "START",
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Black,
-                    color = if (uiState.isSimulating) AccentAmber else AccentCyan
-                )
+                    Text(
+                        text = if (uiState.isSimulating) "STOP" else "START",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = if (uiState.isSimulating) AccentAmber else AccentCyan
+                    )
+                }
             }
         }
 
@@ -1229,7 +1317,8 @@ private fun TacticalKey(
 private fun CockpitRadarOverlay(
     riders: List<Rider>,
     meshState: MeshState,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onExpandFullscreen: () -> Unit = {}
 ) {
     var overlayMode by remember { mutableStateOf("RADAR") }
 
@@ -1266,7 +1355,7 @@ private fun CockpitRadarOverlay(
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     // RADAR / MAP Segmented Switcher
                     Surface(
                         modifier = Modifier
@@ -1310,9 +1399,29 @@ private fun CockpitRadarOverlay(
                         }
                     }
 
+                    if (overlayMode == "MAP") {
+                        Surface(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .clickable { onExpandFullscreen() },
+                            color = DarkSurface,
+                            border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.5f))
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Fullscreen,
+                                    contentDescription = "Full-Screen Map",
+                                    tint = AccentCyan,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
                     Surface(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(34.dp)
                             .clip(CircleShape)
                             .clickable { onClose() },
                         color = DarkSurface,
@@ -1349,6 +1458,37 @@ private fun CockpitRadarOverlay(
                     TacticalOsmMapView(
                         riders = riders
                     )
+
+                    // Floating Fullscreen Pill Button
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(10.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onExpandFullscreen() },
+                        color = DarkSurfaceElevated.copy(alpha = 0.85f),
+                        border = BorderStroke(1.dp, AccentCyan.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Fullscreen,
+                                contentDescription = null,
+                                tint = AccentCyan,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "FULLSCREEN",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AccentCyan
+                            )
+                        }
+                    }
                 }
             }
 
@@ -1403,6 +1543,323 @@ private fun CockpitRadarOverlay(
                                 )
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullScreenTacticalMapOverlay(
+    uiState: IntercomUiState,
+    onEvent: (IntercomUiEvent) -> Unit,
+    onCollapse: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+
+    BackHandler {
+        onCollapse()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(DarkBackground)
+    ) {
+        // 1. Full-Screen Tactical OpenStreetMap Viewport (100% Screen Bleed)
+        TacticalOsmMapView(
+            riders = uiState.riders,
+            modifier = Modifier.fillMaxSize(),
+            initialZoom = 16.5
+        )
+
+        // 2. Floating Top HUD Bar
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            color = DarkSurfaceElevated.copy(alpha = 0.88f),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, BorderSubtle)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "CH 0${uiState.rideChannel}",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AccentCyan
+                    )
+                    Text(
+                        text = " • ",
+                        color = TextMuted
+                    )
+                    Text(
+                        text = "${uiState.riders.size} NODES",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    // Audio status indicator
+                    Surface(
+                        color = when {
+                            uiState.isMuted -> AccentRed.copy(alpha = 0.2f)
+                            uiState.transmissionState == TransmissionState.TRANSMITTING -> AccentGreen.copy(alpha = 0.2f)
+                            else -> DarkBackground
+                        },
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(
+                            1.dp,
+                            when {
+                                uiState.isMuted -> AccentRed
+                                uiState.transmissionState == TransmissionState.TRANSMITTING -> AccentGreen
+                                else -> BorderSubtle
+                            }
+                        )
+                    ) {
+                        Text(
+                            text = when {
+                                uiState.isMuted -> "MUTED"
+                                uiState.transmissionState == TransmissionState.TRANSMITTING -> "HOT MIC"
+                                else -> "STANDBY"
+                            },
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = when {
+                                uiState.isMuted -> AccentRed
+                                uiState.transmissionState == TransmissionState.TRANSMITTING -> AccentGreen
+                                else -> TextMuted
+                            },
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                // Collapse Button
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onCollapse()
+                        },
+                    color = DarkBackground,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, BorderSubtle)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FullscreenExit,
+                            contentDescription = "Exit Fullscreen",
+                            tint = AccentCyan,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "HUD",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentCyan
+                        )
+                    }
+                }
+            }
+        }
+
+        // 3. Floating Bottom Tactical Overlay Console
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Horizontal Convoy Rider Tape
+            if (uiState.riders.isNotEmpty()) {
+                val scrollState = rememberScrollState()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(scrollState),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    uiState.riders.forEach { rider ->
+                        Surface(
+                            color = DarkSurfaceElevated.copy(alpha = 0.88f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                if (rider.isTransmitting) AccentGreen else BorderSubtle
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            when {
+                                                rider.isLocalUser -> AccentCyan
+                                                rider.isTransmitting -> AccentGreen
+                                                rider.hopCount > 1 -> AccentAmber
+                                                else -> AccentCyan
+                                            }
+                                        )
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text(
+                                        text = rider.callsign.uppercase(),
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary
+                                    )
+                                    Text(
+                                        text = "${rider.formattedDistance} ${rider.bearingArrow}${if (rider.hopCount > 1) " • 2H" else ""}",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 9.sp,
+                                        color = if (rider.hopCount > 1) AccentAmber else TextSecondary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Compact Corner Tactical Voice Actuator & Controls Bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Tactical Floating Mic/PTT Button (54dp)
+                val isTransmitting = uiState.transmissionState == TransmissionState.TRANSMITTING
+                Surface(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .pointerInput(uiState.selectedMode) {
+                            when (uiState.selectedMode) {
+                                IntercomMode.PUSH_TO_TALK -> {
+                                    detectTapGestures(
+                                        onPress = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            onEvent(IntercomUiEvent.PttPressed(true))
+                                            tryAwaitRelease()
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            onEvent(IntercomUiEvent.PttPressed(false))
+                                        }
+                                    )
+                                }
+                                IntercomMode.TOGGLE, IntercomMode.ALWAYS_ON -> {
+                                    detectTapGestures(
+                                        onTap = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            onEvent(IntercomUiEvent.ToggleMuteClicked)
+                                        }
+                                    )
+                                }
+                            }
+                        },
+                    color = if (isTransmitting) AccentGreen.copy(alpha = 0.25f) else DarkSurfaceElevated.copy(alpha = 0.90f),
+                    shape = CircleShape,
+                    border = BorderStroke(
+                        2.dp,
+                        if (isTransmitting) AccentGreen else BorderFocus
+                    )
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (uiState.isMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                            contentDescription = "Voice Actuator",
+                            tint = if (isTransmitting) AccentGreen else TextPrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                // Speaker & Mode Quick Pills
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onEvent(IntercomUiEvent.ToggleSpeakerphoneClicked)
+                            },
+                        color = DarkSurfaceElevated.copy(alpha = 0.88f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, if (uiState.isSpeakerphoneOn) AccentCyan else BorderSubtle)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Speaker,
+                                contentDescription = null,
+                                tint = if (uiState.isSpeakerphoneOn) AccentCyan else TextMuted,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (uiState.isSpeakerphoneOn) "SPK" else "OFF",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (uiState.isSpeakerphoneOn) AccentCyan else TextMuted
+                            )
+                        }
+                    }
+
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                val nextMode = when (uiState.selectedMode) {
+                                    IntercomMode.PUSH_TO_TALK -> IntercomMode.TOGGLE
+                                    IntercomMode.TOGGLE -> IntercomMode.ALWAYS_ON
+                                    IntercomMode.ALWAYS_ON -> IntercomMode.PUSH_TO_TALK
+                                }
+                                onEvent(IntercomUiEvent.ModeChanged(nextMode))
+                            },
+                        color = DarkSurfaceElevated.copy(alpha = 0.88f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, BorderSubtle)
+                    ) {
+                        Text(
+                            text = uiState.selectedMode.name.take(3),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                        )
                     }
                 }
             }

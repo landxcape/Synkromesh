@@ -109,11 +109,13 @@ fun DeviceSettingsPage(
             onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) }
         )
 
-        // 4. Helmet Acoustic & Nepali Speed Boost Card
+        // 4. Helmet Acoustic & Dynamic Speed Boost Card
         HelmetAcousticCard(
             selectedProfile = uiState.helmetProfile,
             dynamicGain = uiState.dynamicGain,
-            onSelectProfile = { onEvent(IntercomUiEvent.SelectHelmetProfile(it)) }
+            isSpeedGainEnabled = uiState.isSpeedGainEnabled,
+            onSelectProfile = { onEvent(IntercomUiEvent.SelectHelmetProfile(it)) },
+            onToggleSpeedGain = { onEvent(IntercomUiEvent.ToggleSpeedGain(it)) }
         )
 
         // 5. Diagnostics & Audio Self-Test
@@ -575,7 +577,9 @@ private fun DiagnosticsCard(
 private fun HelmetAcousticCard(
     selectedProfile: HelmetAcousticProfile,
     dynamicGain: Float,
-    onSelectProfile: (HelmetAcousticProfile) -> Unit
+    isSpeedGainEnabled: Boolean,
+    onSelectProfile: (HelmetAcousticProfile) -> Unit,
+    onToggleSpeedGain: (Boolean) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -621,16 +625,16 @@ private fun HelmetAcousticCard(
                 }
 
                 Surface(
-                    color = DarkBackground,
+                    color = if (isSpeedGainEnabled && dynamicGain > 1.05f) AccentAmber.copy(alpha = 0.15f) else DarkBackground,
                     shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, if (dynamicGain > 1.05f) AccentAmber.copy(alpha = 0.5f) else AccentCyan.copy(alpha = 0.3f))
+                    border = BorderStroke(1.dp, if (isSpeedGainEnabled && dynamicGain > 1.05f) AccentAmber.copy(alpha = 0.5f) else AccentCyan.copy(alpha = 0.3f))
                 ) {
                     Text(
-                        text = String.format("%.1fx SPEED GAIN", dynamicGain),
+                        text = if (!isSpeedGainEnabled) "FLAT (1.0x)" else String.format(java.util.Locale.US, "%.1fx BOOST", dynamicGain),
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (dynamicGain > 1.05f) AccentAmber else AccentCyan
+                        color = if (!isSpeedGainEnabled) TextMuted else if (dynamicGain > 1.05f) AccentAmber else AccentCyan
                     )
                 }
             }
@@ -645,40 +649,42 @@ private fun HelmetAcousticCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 3 Helmet Profile Options
+            // 4 Helmet Profile Options
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 HelmetAcousticProfile.entries.forEach { profile ->
                     val isSelected = profile == selectedProfile
                     Surface(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { onSelectProfile(profile) },
                         color = if (isSelected) AccentCyan.copy(alpha = 0.15f) else DarkBackground,
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(8.dp),
                         border = BorderStroke(1.dp, if (isSelected) AccentCyan else AccentCyan.copy(alpha = 0.1f))
                     ) {
                         Column(
-                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 2.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
                                 text = when (profile) {
+                                    HelmetAcousticProfile.STANDARD_FLAT -> "NORMAL"
                                     HelmetAcousticProfile.FULL_FACE_QUIET -> "FULL-FACE"
                                     HelmetAcousticProfile.MODULAR_URBAN -> "MODULAR"
                                     HelmetAcousticProfile.OPEN_FACE_CRUISER -> "OPEN-WIND"
                                 },
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isSelected) AccentCyan else TextPrimary
+                                color = if (isSelected) AccentCyan else TextPrimary,
+                                maxLines = 1
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "${profile.opusBitrateKbps} kbps",
-                                fontSize = 9.sp,
+                                fontSize = 8.sp,
                                 color = TextMuted
                             )
                         }
@@ -686,9 +692,58 @@ private fun HelmetAcousticCard(
                 }
             }
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Dynamic Speed Boost Master Toggle Switch
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onToggleSpeedGain(!isSpeedGainEnabled) },
+                color = DarkBackground,
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, if (isSpeedGainEnabled) AccentCyan.copy(alpha = 0.3f) else AccentCyan.copy(alpha = 0.08f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "DYNAMIC SPEED BOOST",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSpeedGainEnabled) TextPrimary else TextMuted
+                        )
+                        Text(
+                            text = if (isSpeedGainEnabled) "Auto-boosts volume (+0 to +6 dB) with riding velocity" else "Disabled • Fixed flat audio output",
+                            fontSize = 9.sp,
+                            color = TextMuted
+                        )
+                    }
+
+                    Surface(
+                        color = if (isSpeedGainEnabled) AccentCyan else DarkSurfaceElevated,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, if (isSpeedGainEnabled) AccentCyan else TextMuted.copy(alpha = 0.3f))
+                    ) {
+                        Text(
+                            text = if (isSpeedGainEnabled) "AUTO" else "OFF",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black,
+                            color = if (isSpeedGainEnabled) DarkBackground else TextMuted,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "⚡ Nepali Road Calibration: 0..20 km/h: 1.0x (0 dB) • 20..45 km/h: +3 dB • 45..70+ km/h: +6 dB max",
+                text = "⚡ Velocity-based dynamic gain: 0..20 km/h: 1.0x (0 dB) • 20..45 km/h: +3 dB • 45..70+ km/h: +6 dB max",
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Medium,
                 color = TextMuted

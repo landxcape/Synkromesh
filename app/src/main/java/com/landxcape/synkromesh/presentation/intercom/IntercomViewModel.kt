@@ -2,6 +2,7 @@ package com.landxcape.synkromesh.presentation.intercom
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.landxcape.synkromesh.BuildConfig
 import com.landxcape.synkromesh.data.datasource.audio.AudioToneFeedbackGenerator
 import com.landxcape.synkromesh.data.datasource.audio.SpeedAdaptiveGainController
 import com.landxcape.synkromesh.domain.model.HelmetAcousticProfile
@@ -77,6 +78,7 @@ class IntercomViewModel @Inject constructor(
     private val _cockpitPhase = MutableStateFlow(CockpitPhase.STAGING)
     private val _groupingMode = MutableStateFlow(GroupingMode.OPEN_MESH)
     private val _isRadarOverlayActive = MutableStateFlow(false)
+    private val _isMapFullscreen = MutableStateFlow(false)
     private val _isCallsignDialogOpen = MutableStateFlow(false)
     private val _isSettingsOpen = MutableStateFlow(false)
     private val _isConnectionSetupOpen = MutableStateFlow(false)
@@ -131,7 +133,8 @@ class IntercomViewModel @Inject constructor(
         preferencesDataSource.vadThresholdFlow,
         preferencesDataSource.opusBitrateFlow,
         preferencesDataSource.helmetProfileFlow,
-        speedAdaptiveGainController.gainFlow
+        speedAdaptiveGainController.gainFlow,
+        preferencesDataSource.speedGainEnabledFlow
     ) { args: Array<Any?> ->
         UserPreferencesState(
             callsign = args[0] as String,
@@ -139,7 +142,8 @@ class IntercomViewModel @Inject constructor(
             vadThreshold = args[2] as Float,
             opusBitrate = args[3] as Int,
             helmetProfile = args[4] as HelmetAcousticProfile,
-            dynamicGain = args[5] as Float
+            dynamicGain = args[5] as Float,
+            isSpeedGainEnabled = args[6] as Boolean
         )
     }
 
@@ -177,7 +181,8 @@ class IntercomViewModel @Inject constructor(
         _packToken,
         _isSessionEngaging,
         virtualRideSimulator.isSimulating,
-        virtualRideSimulator.simulatedRiders
+        virtualRideSimulator.simulatedRiders,
+        _isMapFullscreen
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         DialogsAndPreflightState(
@@ -195,7 +200,8 @@ class IntercomViewModel @Inject constructor(
             packToken = args[11] as String?,
             isSessionEngaging = args[12] as Boolean,
             isSimulating = args[13] as Boolean,
-            simulatedRiders = args[14] as List<Rider>
+            simulatedRiders = args[14] as List<Rider>,
+            isMapFullscreen = args[15] as Boolean
         )
     }
 
@@ -230,7 +236,7 @@ class IntercomViewModel @Inject constructor(
             )
         }
 
-        val mappedRiders = if (dialogs.isSimulating) {
+        val mappedRiders = if (BuildConfig.DEBUG && dialogs.isSimulating) {
             dialogs.simulatedRiders + baseRiders
         } else {
             baseRiders
@@ -262,6 +268,8 @@ class IntercomViewModel @Inject constructor(
             opusBitrate = prefs.opusBitrate,
             helmetProfile = prefs.helmetProfile,
             dynamicGain = prefs.dynamicGain,
+            isSpeedGainEnabled = prefs.isSpeedGainEnabled,
+            isMapFullscreen = dialogs.isMapFullscreen,
             isCallsignDialogOpen = dialogs.isCallsignDialogOpen,
             isSettingsOpen = dialogs.isSettingsOpen,
             isConnectionSetupOpen = dialogs.isConnectionSetupOpen,
@@ -275,7 +283,7 @@ class IntercomViewModel @Inject constructor(
             packToken = dialogs.packToken,
             errorMessage = dialogs.errorMessage,
             isLowLatencyPowerMode = audioMesh.isLowLatencyPowerMode,
-            isSimulating = dialogs.isSimulating
+            isSimulating = if (BuildConfig.DEBUG) dialogs.isSimulating else false
         )
     }.stateIn(
         scope = viewModelScope,
@@ -315,7 +323,13 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.ReturnToStaging -> onReturnToStaging()
                 is IntercomUiEvent.ToggleRadarOverlay -> _isRadarOverlayActive.value = !_isRadarOverlayActive.value
                 is IntercomUiEvent.ClearError -> _errorFlow.value = null
-                is IntercomUiEvent.ToggleVirtualSimulation -> virtualRideSimulator.toggleSimulation()
+                is IntercomUiEvent.ToggleVirtualSimulation -> {
+                    if (BuildConfig.DEBUG) {
+                        virtualRideSimulator.toggleSimulation()
+                    }
+                }
+                is IntercomUiEvent.ToggleSpeedGain -> preferencesDataSource.saveSpeedGainEnabled(event.enabled)
+                is IntercomUiEvent.SetMapFullscreen -> _isMapFullscreen.value = event.isFullscreen
             }
         }
     }
@@ -563,7 +577,8 @@ class IntercomViewModel @Inject constructor(
         val vadThreshold: Float,
         val opusBitrate: Int,
         val helmetProfile: HelmetAcousticProfile,
-        val dynamicGain: Float
+        val dynamicGain: Float,
+        val isSpeedGainEnabled: Boolean
     )
 
     private data class DialogsAndPreflightState(
@@ -581,7 +596,8 @@ class IntercomViewModel @Inject constructor(
         val packToken: String?,
         val isSessionEngaging: Boolean,
         val isSimulating: Boolean,
-        val simulatedRiders: List<Rider>
+        val simulatedRiders: List<Rider>,
+        val isMapFullscreen: Boolean
     )
 
     private data class HotspotCombinedState(

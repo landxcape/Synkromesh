@@ -34,6 +34,7 @@ class PreferencesDataSource @Inject constructor(
     private val keyAutoConnect = booleanPreferencesKey("auto_connect_mesh")
     private val keyLoudspeaker = booleanPreferencesKey("loudspeaker_enabled")
     private val keyHelmetProfile = stringPreferencesKey("helmet_acoustic_profile")
+    private val keySpeedGainEnabled = booleanPreferencesKey("speed_gain_enabled")
 
     val deviceIdFlow: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[keyDeviceId] ?: run {
@@ -77,8 +78,12 @@ class PreferencesDataSource @Inject constructor(
     }
 
     val helmetProfileFlow: Flow<HelmetAcousticProfile> = context.dataStore.data.map { prefs ->
-        val raw = prefs[keyHelmetProfile] ?: HelmetAcousticProfile.MODULAR_URBAN.name
-        runCatching { HelmetAcousticProfile.valueOf(raw) }.getOrDefault(HelmetAcousticProfile.MODULAR_URBAN)
+        val raw = prefs[keyHelmetProfile] ?: HelmetAcousticProfile.STANDARD_FLAT.name
+        runCatching { HelmetAcousticProfile.valueOf(raw) }.getOrDefault(HelmetAcousticProfile.STANDARD_FLAT)
+    }
+
+    val speedGainEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[keySpeedGainEnabled] ?: true
     }
 
     suspend fun saveCallsign(callsign: String): Result<Unit> = runCatching {
@@ -128,6 +133,12 @@ class PreferencesDataSource @Inject constructor(
             prefs[keyHelmetProfile] = profile.name
             prefs[keyVadThreshold] = profile.vadThreshold
             prefs[keyOpusBitrate] = profile.opusBitrateKbps
+        }
+    }
+
+    suspend fun saveSpeedGainEnabled(enabled: Boolean): Result<Unit> = runCatching {
+        context.dataStore.edit { prefs ->
+            prefs[keySpeedGainEnabled] = enabled
         }
     }
 }
