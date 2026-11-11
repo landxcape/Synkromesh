@@ -1,6 +1,7 @@
 package com.landxcape.synkromesh.data.datasource.mesh
 
 import com.landxcape.synkromesh.data.datasource.mesh.security.PackTokenAuthenticator
+import com.landxcape.synkromesh.data.datasource.mesh.security.PayloadCipher
 import com.landxcape.synkromesh.data.datasource.mesh.security.ReplayWindow
 import com.landxcape.synkromesh.domain.model.AudioPacket
 import com.landxcape.synkromesh.domain.model.MeshPeer
@@ -65,8 +66,14 @@ class UdpMeshSocketDriver @Inject constructor(
     var activePackToken: String? = null
         set(value) {
             field = value
+            derivedEncryptionKey = if (!value.isNullOrBlank()) {
+                PayloadCipher.deriveKey(value)
+            } else null
             invalidateSenderHeader()
         }
+
+    @Volatile
+    private var derivedEncryptionKey: ByteArray? = null
 
     private val replayWindows = ConcurrentHashMap<String, ReplayWindow>()
 
@@ -239,8 +246,8 @@ class UdpMeshSocketDriver @Inject constructor(
     private fun sendDatagram(type: Byte, seq: Long, payload: ByteArray) {
         val socket = datagramSocket ?: return
         val senderBytes = getSenderHeaderBytes()
-        val totalSize = 2 + 1 + 8 + 8 + 1 + senderBytes.size + payload.size
-        if (totalSize > MAX_DATAGRAM_SIZE) return
+        val now = System.currentTimeMillis()
+        val headerSize = 2 + 1 + 8 + 8 + 1 + senderBytes.size
 
         val data: ByteArray
         synchronized(sendLock) {
@@ -248,10 +255,22 @@ class UdpMeshSocketDriver @Inject constructor(
             sendBuffer.putShort(MAGIC_HEADER)
             sendBuffer.put(type)
             sendBuffer.putLong(seq)
-            sendBuffer.putLong(System.currentTimeMillis())
+            sendBuffer.putLong(now)
             sendBuffer.put(senderBytes.size.toByte())
             sendBuffer.put(senderBytes)
-            sendBuffer.put(payload)
+
+            val headerAad = sendBuffer.array().copyOf(headerSize)
+            val key = derivedEncryptionKey
+            val finalPayload = if (key != null && payload.isNotEmpty()) {
+                PayloadCipher.encrypt(key, localDeviceId, seq, headerAad, payload)
+            } else {
+                payload
+            }
+
+            val totalSize = headerSize + finalPayload.size
+            if (totalSize > MAX_DATAGRAM_SIZE) return
+
+            sendBuffer.put(finalPayload)
             data = sendBuffer.array().copyOf(totalSize)
         }
 
@@ -319,9 +338,26 @@ class UdpMeshSocketDriver @Inject constructor(
             return
         }
 
-        val payloadSize = buffer.remaining()
-        val payload = ByteArray(payloadSize)
-        buffer.get(payload)
+        // CRITICAL 5: END-TO-END PAYLOAD DECRYPTION & AAD AUTHENTICATION
+        val headerEndPos = buffer.position()
+        val headerAad = data.copyOfRange(0, headerEndPos)
+
+        val rawPayloadSize = buffer.remaining()
+        val rawPayload = ByteArray(rawPayloadSize)
+        buffer.get(rawPayload)
+
+        val key = derivedEncryptionKey
+        val payload = if (key != null && rawPayload.isNotEmpty()) {
+            val decrypted = PayloadCipher.decrypt(key, senderDeviceId, seq, headerAad, rawPayload)
+            if (decrypted == null) {
+                // Cryptographic tag verification failed or wrong key: drop packet!
+                return
+            }
+            decrypted
+        } else {
+            rawPayload
+        }
+        val payloadSize = payload.size
 
         val isSpeaking = (type == PACKET_TYPE_AUDIO && payloadSize > 0)
 
@@ -416,6 +452,7 @@ class UdpMeshSocketDriver @Inject constructor(
         _udpPeersFlow.value = emptyList()
         replayWindows.clear()
         cachedSenderHeaderBytes = null
+        derivedEncryptionKey = null
         cachedBroadcastTargets = emptyList()
     }
 }
