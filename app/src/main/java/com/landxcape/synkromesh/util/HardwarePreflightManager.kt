@@ -10,6 +10,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
+import androidx.core.location.LocationManagerCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -106,7 +107,7 @@ class HardwarePreflightManager @Inject constructor(
         val isWifiEnabled = wifiManager?.isWifiEnabled == true
 
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-        val isLocationEnabled = locationManager?.isLocationEnabled == true
+        val isLocationEnabled = locationManager?.let { LocationManagerCompat.isLocationEnabled(it) } == true
 
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val isBatteryOptimizationIgnored = powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true

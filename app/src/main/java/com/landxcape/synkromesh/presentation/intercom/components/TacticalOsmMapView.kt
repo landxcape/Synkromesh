@@ -39,6 +39,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.landxcape.synkromesh.domain.model.Rider
 import com.landxcape.synkromesh.presentation.theme.AccentAmber
 import com.landxcape.synkromesh.presentation.theme.AccentCyan
@@ -81,6 +83,14 @@ fun TacticalOsmMapView(
     }
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        mapViewRef?.onResume()
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
+        mapViewRef?.onPause()
+    }
 
     DisposableEffect(Unit) {
         onDispose {

@@ -288,9 +288,11 @@ fun IntercomScreen(
         containerColor = DarkBackground,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { _ ->
+    ) { innerPadding ->
         Box(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
         ) {
             AnimatedContent(
                 targetState = uiState.cockpitPhase,
