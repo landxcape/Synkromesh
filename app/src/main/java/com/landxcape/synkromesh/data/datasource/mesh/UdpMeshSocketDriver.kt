@@ -1,5 +1,6 @@
 package com.landxcape.synkromesh.data.datasource.mesh
 
+import com.landxcape.synkromesh.data.datasource.mesh.routing.PacketRelayFilter
 import com.landxcape.synkromesh.data.datasource.mesh.security.PackTokenAuthenticator
 import com.landxcape.synkromesh.data.datasource.mesh.security.PayloadCipher
 import com.landxcape.synkromesh.data.datasource.mesh.security.ReplayWindow
@@ -38,6 +39,7 @@ class UdpMeshSocketDriver @Inject constructor(
     companion object {
         const val UDP_PORT = 50005
         const val MAX_DATAGRAM_SIZE = 1024
+        const val DEFAULT_HOP_LIMIT: Byte = 3
         private const val MAGIC_HEADER: Short = 0x534D // 'SM' (SynkroMesh)
         private const val PACKET_TYPE_AUDIO: Byte = 0x01
         private const val PACKET_TYPE_HEARTBEAT: Byte = 0x02
@@ -76,6 +78,7 @@ class UdpMeshSocketDriver @Inject constructor(
     private var derivedEncryptionKey: ByteArray? = null
 
     private val replayWindows = ConcurrentHashMap<String, ReplayWindow>()
+    private val packetRelayFilter = PacketRelayFilter(256)
     private val lastReceivedTimestamps = ConcurrentHashMap<String, Long>()
 
     @Volatile
@@ -253,18 +256,22 @@ class UdpMeshSocketDriver @Inject constructor(
         val senderBytes = getSenderHeaderBytes()
         val now = System.currentTimeMillis()
         val headerSize = 2 + 1 + 8 + 8 + 1 + senderBytes.size
+        val fullType = ((DEFAULT_HOP_LIMIT.toInt() shl 4) or (type.toInt() and 0x0F)).toByte()
 
         val data: ByteArray
         synchronized(sendLock) {
             sendBuffer.clear()
             sendBuffer.putShort(MAGIC_HEADER)
-            sendBuffer.put(type)
+            sendBuffer.put(fullType)
             sendBuffer.putLong(seq)
             sendBuffer.putLong(now)
             sendBuffer.put(senderBytes.size.toByte())
             sendBuffer.put(senderBytes)
 
             val headerAad = sendBuffer.array().copyOf(headerSize)
+            // Mask TTL nibble in AAD so downstream relays can decrement TTL without invalidating cipher tag
+            headerAad[2] = (type.toInt() and 0x0F).toByte()
+
             val key = derivedEncryptionKey
             val finalPayload = if (key != null && payload.isNotEmpty()) {
                 PayloadCipher.encrypt(key, localDeviceId, seq, headerAad, payload)
@@ -295,6 +302,24 @@ class UdpMeshSocketDriver @Inject constructor(
         }
     }
 
+    private fun relayDatagram(data: ByteArray) {
+        val socket = datagramSocket ?: return
+        if (broadcastTarget.hostAddress != "255.255.255.255") {
+            try {
+                val datagram = DatagramPacket(data, data.size, broadcastTarget, UDP_PORT)
+                socket.send(datagram)
+            } catch (_: Exception) {}
+        } else {
+            val targets = getCachedBroadcastAddresses()
+            for (target in targets) {
+                try {
+                    val datagram = DatagramPacket(data, data.size, target, UDP_PORT)
+                    socket.send(datagram)
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     private fun handleIncomingDatagram(data: ByteArray, length: Int, hostIp: String?) {
         val buffer = ByteBuffer.wrap(data, 0, length).apply {
             order(ByteOrder.BIG_ENDIAN)
@@ -303,7 +328,12 @@ class UdpMeshSocketDriver @Inject constructor(
         val magic = buffer.short
         if (magic != MAGIC_HEADER) return
 
-        val type = buffer.get()
+        val rawType = buffer.get()
+        val rawHopLimit = (rawType.toInt() shr 4) and 0x0F
+        val hopLimit = if (rawHopLimit == 0) 1 else rawHopLimit
+        val type = (rawType.toInt() and 0x0F).toByte()
+        val calculatedHopCount = (DEFAULT_HOP_LIMIT.toInt() - hopLimit) + 1
+
         val seq = buffer.long
         val timestamp = buffer.long
         val tagLen = buffer.get().toInt() and 0xFF
@@ -343,9 +373,21 @@ class UdpMeshSocketDriver @Inject constructor(
             return
         }
 
+        // MULTI-HOP PACKET RELAYING:
+        // If TTL > 1 and this is the first time we see this packet, decrement TTL and re-broadcast to mesh
+        if (hopLimit > 1 && packetRelayFilter.shouldRelay(senderDeviceId, seq)) {
+            val nextHopLimit = hopLimit - 1
+            val nextRawType = ((nextHopLimit shl 4) or (type.toInt() and 0x0F)).toByte()
+            val relayData = data.copyOf(length)
+            relayData[2] = nextRawType
+            relayDatagram(relayData)
+        }
+
         // CRITICAL 5: END-TO-END PAYLOAD DECRYPTION & AAD AUTHENTICATION
         val headerEndPos = buffer.position()
         val headerAad = data.copyOfRange(0, headerEndPos)
+        // Mask TTL nibble so relayed datagrams decrypt seamlessly
+        headerAad[2] = (rawType.toInt() and 0x0F).toByte()
 
         val rawPayloadSize = buffer.remaining()
         val rawPayload = ByteArray(rawPayloadSize)
@@ -452,7 +494,8 @@ class UdpMeshSocketDriver @Inject constructor(
             estimatedDistanceMeters = calculatedDistance ?: existing?.estimatedDistanceMeters ?: LocationTelemetryDataSource.estimateDistanceRssiMeters(-55),
             relativeBearingDegrees = calculatedRelBearing ?: existing?.relativeBearingDegrees,
             rttMs = measuredRttMs ?: existing?.rttMs,
-            packetLossPercent = lossPercent
+            packetLossPercent = lossPercent,
+            hopCount = calculatedHopCount
         )
         _udpPeersFlow.value = _udpPeersMap.values.toList()
 
@@ -479,6 +522,7 @@ class UdpMeshSocketDriver @Inject constructor(
         _udpPeersMap.clear()
         _udpPeersFlow.value = emptyList()
         replayWindows.clear()
+        packetRelayFilter.clear()
         lastReceivedTimestamps.clear()
         cachedSenderHeaderBytes = null
         derivedEncryptionKey = null

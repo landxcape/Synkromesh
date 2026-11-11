@@ -79,6 +79,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.landxcape.synkromesh.domain.model.HelmetAcousticProfile
 import com.landxcape.synkromesh.domain.model.IntercomMode
 import com.landxcape.synkromesh.domain.model.MeshState
 import com.landxcape.synkromesh.domain.model.Rider
@@ -819,7 +820,80 @@ private fun TacticalQuickSettingsSheet(
             }
         }
 
-        // 3. Audio DSP Engine & Peer Diagnostics Footer
+        // 3. Helmet Acoustic Profile & Dynamic Speed Gain Boost (Nepali Calibrated)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = DarkSurface,
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, BorderSubtle)
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "HELMET ACOUSTIC PROFILE",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextSecondary
+                    )
+                    Text(
+                        text = String.format("%.1fx GAIN BOOST", uiState.dynamicGain),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (uiState.dynamicGain > 1.05f) AccentAmber else AccentCyan
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    HelmetAcousticProfile.entries.forEach { profile ->
+                        val isSelected = profile == uiState.helmetProfile
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onEvent(IntercomUiEvent.SelectHelmetProfile(profile)) },
+                            color = if (isSelected) AccentCyan.copy(alpha = 0.15f) else DarkBackground,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (isSelected) AccentCyan else BorderSubtle)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = when (profile) {
+                                        HelmetAcousticProfile.FULL_FACE_QUIET -> "FULL-FACE"
+                                        HelmetAcousticProfile.MODULAR_URBAN -> "MODULAR"
+                                        HelmetAcousticProfile.OPEN_FACE_CRUISER -> "OPEN-WIND"
+                                    },
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) AccentCyan else TextPrimary
+                                )
+                                Text(
+                                    text = "${profile.opusBitrateKbps} kbps",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Audio DSP Engine & Peer Diagnostics Footer
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1195,7 +1269,8 @@ private fun CockpitRadarOverlay(
                                     fontSize = 13.sp,
                                     color = TextPrimary
                                 )
-                                val diagStr = if (!rider.isLocalUser) " • ${rider.latencyMs}ms • LOSS ${rider.packetLossPercent.toInt()}%" else ""
+                                val hopStr = if (rider.hopCount > 1) " • ${rider.hopCount} HOPS" else " • 1 HOP"
+                                val diagStr = if (!rider.isLocalUser) " • ${rider.latencyMs}ms • LOSS ${rider.packetLossPercent.toInt()}%$hopStr" else ""
                                 Text(
                                     text = "RANGE: ${rider.formattedDistance} ${rider.relativePosition ?: ""}$diagStr",
                                     fontFamily = FontFamily.Monospace,

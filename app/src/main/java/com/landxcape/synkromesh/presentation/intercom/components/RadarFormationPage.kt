@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -276,6 +277,20 @@ internal fun RadarCanvasWidget(
                     (center.y + peerRadius * sin(canvasAngleRad)).toFloat()
                 )
 
+                // Tactical Mesh Topology Link Vector:
+                // Solid Cyan line for direct 1-hop link, Dashed Amber line for 2+ hop relayed link
+                val pathEffect = if (rider.hopCount > 1) {
+                    PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+                } else null
+
+                drawLine(
+                    color = if (rider.hopCount > 1) AccentAmber.copy(alpha = 0.5f) else AccentCyan.copy(alpha = 0.35f),
+                    start = center,
+                    end = peerPos,
+                    strokeWidth = 1.5.dp.toPx(),
+                    pathEffect = pathEffect
+                )
+
                 // Blip Outer Glow
                 if (rider.isTransmitting) {
                     drawCircle(
@@ -408,11 +423,17 @@ private fun RiderTelemetryCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Metrics Chips Row: Speed, Altitude, Battery, Signal
+            // Metrics Chips Row: Hop Count, Speed, Altitude, Battery, Signal
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                if (!rider.isLocalUser) {
+                    MetricChip(
+                        label = if (rider.hopCount > 1) "🔀 ${rider.hopCount} HOPS" else "⚡ DIRECT",
+                        highlightColor = if (rider.hopCount > 1) AccentAmber else AccentCyan
+                    )
+                }
                 MetricChip(label = "🏎️ ${rider.formattedSpeed}")
                 MetricChip(label = "⛰️ ${rider.formattedAltitude}")
                 MetricChip(

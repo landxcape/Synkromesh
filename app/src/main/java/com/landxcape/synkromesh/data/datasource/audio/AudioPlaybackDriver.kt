@@ -18,7 +18,8 @@ import kotlin.math.max
 
 @Singleton
 class AudioPlaybackDriver @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val speedAdaptiveGainController: SpeedAdaptiveGainController
 ) {
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -130,16 +131,34 @@ class AudioPlaybackDriver @Inject constructor(
         track.play()
         audioTrack = track
         _isPlaying.value = true
+        speedAdaptiveGainController.start()
     }
+
+    private var pcmGainBuffer = ShortArray(1920)
 
     fun writePcm(samples: ShortArray): Int {
         val track = audioTrack ?: return 0
         if (!_isPlaying.value) return 0
-        return track.write(samples, 0, samples.size, AudioTrack.WRITE_NON_BLOCKING)
+
+        val gain = speedAdaptiveGainController.currentGain
+        val samplesToWrite = if (gain > 1.01f) {
+            if (pcmGainBuffer.size < samples.size) {
+                pcmGainBuffer = ShortArray(samples.size)
+            }
+            for (i in samples.indices) {
+                val amplified = (samples[i] * gain).toInt()
+                pcmGainBuffer[i] = amplified.coerceIn(-32768, 32767).toShort()
+            }
+            pcmGainBuffer
+        } else {
+            samples
+        }
+        return track.write(samplesToWrite, 0, samples.size, AudioTrack.WRITE_NON_BLOCKING)
     }
 
     fun stopPlayback(): Result<Unit> = runCatching {
         _isPlaying.value = false
+        speedAdaptiveGainController.stop()
         audioTrack?.let { track ->
             if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
                 track.stop()

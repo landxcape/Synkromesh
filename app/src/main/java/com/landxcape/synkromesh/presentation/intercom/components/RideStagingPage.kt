@@ -52,6 +52,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import com.landxcape.synkromesh.domain.model.HelmetAcousticProfile
 import com.landxcape.synkromesh.domain.model.HotspotClientState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -610,7 +611,88 @@ private fun AudioHardwareContent(
                 }
             }
 
-            // 3. Audio Loopback Self-Test Button
+            // 3. Helmet Acoustic Profile & Dynamic Speed Gain Boost Card (Nepali Calibrated)
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp)),
+                color = DarkBackground,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, BorderSubtle)
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "HELMET ACOUSTIC PROFILE",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextSecondary
+                        )
+
+                        Text(
+                            text = String.format("%.1fx SPEED GAIN", uiState.dynamicGain),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (uiState.dynamicGain > 1.05f) AccentAmber else AccentCyan
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        HelmetAcousticProfile.entries.forEach { profile ->
+                            val isSelected = profile == uiState.helmetProfile
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { onEvent(IntercomUiEvent.SelectHelmetProfile(profile)) },
+                                color = if (isSelected) AccentCyan.copy(alpha = 0.15f) else DarkSurface,
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, if (isSelected) AccentCyan else BorderSubtle)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = when (profile) {
+                                            HelmetAcousticProfile.FULL_FACE_QUIET -> "FULL-FACE"
+                                            HelmetAcousticProfile.MODULAR_URBAN -> "MODULAR"
+                                            HelmetAcousticProfile.OPEN_FACE_CRUISER -> "OPEN-WIND"
+                                        },
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) AccentCyan else TextPrimary
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "${profile.opusBitrateKbps}k",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 9.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "⚡ Nepali Road Curve: 0..20 km/h: 1.0x (0 dB) • 20..45 km/h: +3 dB • 45..70+ km/h: +6 dB max",
+                        fontSize = 9.sp,
+                        color = TextMuted
+                    )
+                }
+            }
+
+            // 4. Audio Loopback Self-Test Button
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()

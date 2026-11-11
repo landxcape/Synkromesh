@@ -3,6 +3,8 @@ package com.landxcape.synkromesh.presentation.intercom
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.landxcape.synkromesh.data.datasource.audio.AudioToneFeedbackGenerator
+import com.landxcape.synkromesh.data.datasource.audio.SpeedAdaptiveGainController
+import com.landxcape.synkromesh.domain.model.HelmetAcousticProfile
 import com.landxcape.synkromesh.data.datasource.audio.FeedbackTone
 import com.landxcape.synkromesh.data.datasource.bluetooth.BluetoothHeadsetDeviceManager
 import com.landxcape.synkromesh.data.datasource.bluetooth.PairedHeadset
@@ -65,7 +67,8 @@ class IntercomViewModel @Inject constructor(
     private val stopIntercomSessionUseCase: StopIntercomSessionUseCase,
     private val observeAudioLevelUseCase: ObserveAudioLevelUseCase,
     private val toggleLoopbackUseCase: ToggleLoopbackUseCase,
-    private val audioToneFeedbackGenerator: AudioToneFeedbackGenerator
+    private val audioToneFeedbackGenerator: AudioToneFeedbackGenerator,
+    private val speedAdaptiveGainController: SpeedAdaptiveGainController
 ) : ViewModel() {
 
     private val _errorFlow = MutableStateFlow<String?>(null)
@@ -124,9 +127,18 @@ class IntercomViewModel @Inject constructor(
         preferencesDataSource.callsignFlow,
         preferencesDataSource.rideChannelFlow,
         preferencesDataSource.vadThresholdFlow,
-        preferencesDataSource.opusBitrateFlow
-    ) { callsign, channel, vad, bitrate ->
-        UserPreferencesState(callsign, channel, vad, bitrate)
+        preferencesDataSource.opusBitrateFlow,
+        preferencesDataSource.helmetProfileFlow,
+        speedAdaptiveGainController.gainFlow
+    ) { args: Array<Any?> ->
+        UserPreferencesState(
+            callsign = args[0] as String,
+            rideChannel = args[1] as Int,
+            vadThreshold = args[2] as Float,
+            opusBitrate = args[3] as Int,
+            helmetProfile = args[4] as HelmetAcousticProfile,
+            dynamicGain = args[5] as Float
+        )
     }
 
     private val hotspotFlow = combine(
@@ -205,7 +217,8 @@ class IntercomViewModel @Inject constructor(
                 altitudeMeters = peer.altitudeMeters,
                 speedKmh = peer.speedKmh,
                 batteryPercent = peer.batteryPercent,
-                packetLossPercent = peer.packetLossPercent ?: 0f
+                packetLossPercent = peer.packetLossPercent ?: 0f,
+                hopCount = peer.hopCount
             )
         }
 
@@ -233,6 +246,8 @@ class IntercomViewModel @Inject constructor(
             rideChannel = prefs.rideChannel,
             vadThreshold = prefs.vadThreshold,
             opusBitrate = prefs.opusBitrate,
+            helmetProfile = prefs.helmetProfile,
+            dynamicGain = prefs.dynamicGain,
             isCallsignDialogOpen = dialogs.isCallsignDialogOpen,
             isSettingsOpen = dialogs.isSettingsOpen,
             isConnectionSetupOpen = dialogs.isConnectionSetupOpen,
@@ -272,6 +287,7 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.SaveRideChannel -> onSaveChannel(event.channel)
                 is IntercomUiEvent.SaveVadThreshold -> onSaveVadThreshold(event.threshold)
                 is IntercomUiEvent.SaveOpusBitrate -> onSaveOpusBitrate(event.bitrate)
+                is IntercomUiEvent.SelectHelmetProfile -> preferencesDataSource.saveHelmetProfile(event.profile)
                 is IntercomUiEvent.TogglePeerMute -> onTogglePeerMute(event.peerId)
                 is IntercomUiEvent.RefreshBatteryStatus -> refreshPreflightAndDevices()
                 is IntercomUiEvent.RefreshPreflightAndDevices -> refreshPreflightAndDevices()
@@ -524,7 +540,9 @@ class IntercomViewModel @Inject constructor(
         val callsign: String,
         val rideChannel: Int,
         val vadThreshold: Float,
-        val opusBitrate: Int
+        val opusBitrate: Int,
+        val helmetProfile: HelmetAcousticProfile,
+        val dynamicGain: Float
     )
 
     private data class DialogsAndPreflightState(

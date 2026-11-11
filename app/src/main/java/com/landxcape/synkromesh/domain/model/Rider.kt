@@ -13,8 +13,11 @@ data class Rider(
     val altitudeMeters: Double? = null,
     val speedKmh: Float? = null,
     val batteryPercent: Int? = null,
-    val packetLossPercent: Float = 0f
+    val packetLossPercent: Float = 0f,
+    val hopCount: Int = 1
 ) {
+    val isRelayed: Boolean get() = hopCount > 1
+
     val formattedDistance: String
         get() = when {
             estimatedDistanceMeters == null -> "—"

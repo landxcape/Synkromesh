@@ -17,5 +17,6 @@ data class MeshPeer(
     val relativeBearingDegrees: Float? = null,
     val batteryPercent: Int? = null,
     val rttMs: Int? = null,
-    val packetLossPercent: Float? = null
+    val packetLossPercent: Float? = null,
+    val hopCount: Int = 1
 )

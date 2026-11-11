@@ -2,6 +2,7 @@ package com.landxcape.synkromesh.presentation.intercom
 
 import com.landxcape.synkromesh.data.datasource.bluetooth.PairedHeadset
 import com.landxcape.synkromesh.domain.model.AudioRoutingState
+import com.landxcape.synkromesh.domain.model.HelmetAcousticProfile
 import com.landxcape.synkromesh.domain.model.HotspotClientState
 import com.landxcape.synkromesh.domain.model.IntercomMode
 import com.landxcape.synkromesh.domain.model.MeshPeer
@@ -46,6 +47,8 @@ data class IntercomUiState(
     val rideChannel: Int = 1,
     val vadThreshold: Float = 0.05f,
     val opusBitrate: Int = 16,
+    val helmetProfile: HelmetAcousticProfile = HelmetAcousticProfile.MODULAR_URBAN,
+    val dynamicGain: Float = 1.0f,
     val isCallsignDialogOpen: Boolean = false,
     val isSettingsOpen: Boolean = false,
     val isConnectionSetupOpen: Boolean = false,
@@ -79,6 +82,7 @@ sealed interface IntercomUiEvent {
     data class SaveRideChannel(val channel: Int) : IntercomUiEvent
     data class SaveVadThreshold(val threshold: Float) : IntercomUiEvent
     data class SaveOpusBitrate(val bitrate: Int) : IntercomUiEvent
+    data class SelectHelmetProfile(val profile: HelmetAcousticProfile) : IntercomUiEvent
     data class TogglePeerMute(val peerId: String) : IntercomUiEvent
     data object RefreshBatteryStatus : IntercomUiEvent
     data object RefreshPreflightAndDevices : IntercomUiEvent

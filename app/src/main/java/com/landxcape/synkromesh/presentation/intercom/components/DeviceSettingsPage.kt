@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.landxcape.synkromesh.data.datasource.bluetooth.PairedHeadset
+import com.landxcape.synkromesh.domain.model.HelmetAcousticProfile
 import com.landxcape.synkromesh.presentation.intercom.IntercomUiEvent
 import com.landxcape.synkromesh.presentation.intercom.IntercomUiState
 import com.landxcape.synkromesh.presentation.theme.AccentAmber
@@ -108,7 +109,14 @@ fun DeviceSettingsPage(
             onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) }
         )
 
-        // 4. Diagnostics & Audio Self-Test
+        // 4. Helmet Acoustic & Nepali Speed Boost Card
+        HelmetAcousticCard(
+            selectedProfile = uiState.helmetProfile,
+            dynamicGain = uiState.dynamicGain,
+            onSelectProfile = { onEvent(IntercomUiEvent.SelectHelmetProfile(it)) }
+        )
+
+        // 5. Diagnostics & Audio Self-Test
         DiagnosticsCard(
             isLoopbackActive = uiState.isLoopbackActive,
             onToggleLoopback = { onEvent(IntercomUiEvent.ToggleLoopbackClicked) },
@@ -559,6 +567,132 @@ private fun DiagnosticsCard(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun HelmetAcousticCard(
+    selectedProfile: HelmetAcousticProfile,
+    dynamicGain: Float,
+    onSelectProfile: (HelmetAcousticProfile) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = DarkSurfaceElevated)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        modifier = Modifier.size(42.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = AccentAmber.copy(alpha = 0.15f)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.GraphicEq,
+                                contentDescription = null,
+                                tint = AccentAmber,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "ACOUSTIC PROFILE & GAIN",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted
+                        )
+                        Text(
+                            text = selectedProfile.displayName,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = TextPrimary
+                        )
+                    }
+                }
+
+                Surface(
+                    color = DarkBackground,
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, if (dynamicGain > 1.05f) AccentAmber.copy(alpha = 0.5f) else AccentCyan.copy(alpha = 0.3f))
+                ) {
+                    Text(
+                        text = String.format("%.1fx SPEED GAIN", dynamicGain),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (dynamicGain > 1.05f) AccentAmber else AccentCyan
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = selectedProfile.description,
+                fontSize = 11.sp,
+                color = TextSecondary,
+                lineHeight = 16.sp
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 3 Helmet Profile Options
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                HelmetAcousticProfile.entries.forEach { profile ->
+                    val isSelected = profile == selectedProfile
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onSelectProfile(profile) },
+                        color = if (isSelected) AccentCyan.copy(alpha = 0.15f) else DarkBackground,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, if (isSelected) AccentCyan else AccentCyan.copy(alpha = 0.1f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = when (profile) {
+                                    HelmetAcousticProfile.FULL_FACE_QUIET -> "FULL-FACE"
+                                    HelmetAcousticProfile.MODULAR_URBAN -> "MODULAR"
+                                    HelmetAcousticProfile.OPEN_FACE_CRUISER -> "OPEN-WIND"
+                                },
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) AccentCyan else TextPrimary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "${profile.opusBitrateKbps} kbps",
+                                fontSize = 9.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "⚡ Nepali Road Calibration: 0..20 km/h: 1.0x (0 dB) • 20..45 km/h: +3 dB • 45..70+ km/h: +6 dB max",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Medium,
+                color = TextMuted
+            )
         }
     }
 }

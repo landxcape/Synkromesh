@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.landxcape.synkromesh.domain.model.HelmetAcousticProfile
 import com.landxcape.synkromesh.domain.model.IntercomMode
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -32,6 +33,7 @@ class PreferencesDataSource @Inject constructor(
     private val keyOpusBitrate = intPreferencesKey("opus_bitrate_kbps")
     private val keyAutoConnect = booleanPreferencesKey("auto_connect_mesh")
     private val keyLoudspeaker = booleanPreferencesKey("loudspeaker_enabled")
+    private val keyHelmetProfile = stringPreferencesKey("helmet_acoustic_profile")
 
     val deviceIdFlow: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[keyDeviceId] ?: run {
@@ -74,6 +76,11 @@ class PreferencesDataSource @Inject constructor(
         prefs[keyLoudspeaker] ?: true
     }
 
+    val helmetProfileFlow: Flow<HelmetAcousticProfile> = context.dataStore.data.map { prefs ->
+        val raw = prefs[keyHelmetProfile] ?: HelmetAcousticProfile.MODULAR_URBAN.name
+        runCatching { HelmetAcousticProfile.valueOf(raw) }.getOrDefault(HelmetAcousticProfile.MODULAR_URBAN)
+    }
+
     suspend fun saveCallsign(callsign: String): Result<Unit> = runCatching {
         context.dataStore.edit { prefs ->
             prefs[keyCallsign] = callsign
@@ -113,6 +120,14 @@ class PreferencesDataSource @Inject constructor(
     suspend fun saveLoudspeaker(enabled: Boolean): Result<Unit> = runCatching {
         context.dataStore.edit { prefs ->
             prefs[keyLoudspeaker] = enabled
+        }
+    }
+
+    suspend fun saveHelmetProfile(profile: HelmetAcousticProfile): Result<Unit> = runCatching {
+        context.dataStore.edit { prefs ->
+            prefs[keyHelmetProfile] = profile.name
+            prefs[keyVadThreshold] = profile.vadThreshold
+            prefs[keyOpusBitrate] = profile.opusBitrateKbps
         }
     }
 }
