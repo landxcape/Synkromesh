@@ -41,6 +41,8 @@ class IntercomRepositoryImpl @Inject constructor(
         }
     }
 
+    private var isToggleLatched = false
+
     override fun observeTransmissionState(): Flow<TransmissionState> = _transmissionState.asStateFlow()
     override fun observeIntercomMode(): Flow<IntercomMode> = _intercomMode.asStateFlow()
     override fun observeConnectedRiders(): Flow<List<Rider>> = _connectedRiders.asStateFlow()
@@ -48,9 +50,39 @@ class IntercomRepositoryImpl @Inject constructor(
     override fun observeIsSessionActive(): Flow<Boolean> = _isSessionActive.asStateFlow()
 
     override suspend fun setIntercomMode(mode: IntercomMode): Result<Unit> = runCatching {
+        val wasTransmitting = _transmissionState.value == TransmissionState.TRANSMITTING
         _intercomMode.value = mode
         preferencesDataSource.saveDefaultMode(mode)
-        updateTransmissionState()
+
+        if (!_isSessionActive.value) {
+            _transmissionState.value = TransmissionState.IDLE
+            return@runCatching
+        }
+
+        when (mode) {
+            IntercomMode.ALWAYS_ON -> {
+                _transmissionState.value = if (_isMuted.value) TransmissionState.IDLE else TransmissionState.TRANSMITTING
+            }
+            IntercomMode.TOGGLE -> {
+                // Preserves active transmission: if user was talking (PTT hold or open), latch it ON.
+                // If user was idle, keep it IDLE to avoid uncommanded mic leaks.
+                if (wasTransmitting && !_isMuted.value) {
+                    isToggleLatched = true
+                    _transmissionState.value = TransmissionState.TRANSMITTING
+                } else {
+                    isToggleLatched = false
+                    _transmissionState.value = TransmissionState.IDLE
+                }
+            }
+            IntercomMode.PUSH_TO_TALK -> {
+                // If already transmitting when switching to PTT, preserve transmission continuity
+                if (wasTransmitting && !_isMuted.value) {
+                    _transmissionState.value = TransmissionState.TRANSMITTING
+                } else {
+                    _transmissionState.value = TransmissionState.IDLE
+                }
+            }
+        }
     }
 
     override suspend fun setMicrophoneMute(muted: Boolean): Result<Unit> = runCatching {
@@ -59,15 +91,32 @@ class IntercomRepositoryImpl @Inject constructor(
     }
 
     override suspend fun toggleMicrophoneMute(): Result<Boolean> = runCatching {
-        val next = !_isMuted.value
-        _isMuted.value = next
-        updateTransmissionState()
-        next
+        if (_intercomMode.value == IntercomMode.TOGGLE) {
+            isToggleLatched = !isToggleLatched
+            _transmissionState.value = if (isToggleLatched && !_isMuted.value) TransmissionState.TRANSMITTING else TransmissionState.IDLE
+            !isToggleLatched
+        } else {
+            val next = !_isMuted.value
+            _isMuted.value = next
+            updateTransmissionState()
+            next
+        }
     }
 
     override suspend fun handlePttPress(isPressed: Boolean): Result<Unit> = runCatching {
-        if (_intercomMode.value == IntercomMode.PUSH_TO_TALK) {
-            _transmissionState.value = if (isPressed && !_isMuted.value) TransmissionState.TRANSMITTING else TransmissionState.IDLE
+        when (_intercomMode.value) {
+            IntercomMode.PUSH_TO_TALK -> {
+                _transmissionState.value = if (isPressed && !_isMuted.value) TransmissionState.TRANSMITTING else TransmissionState.IDLE
+            }
+            IntercomMode.TOGGLE -> {
+                if (isPressed) {
+                    isToggleLatched = !isToggleLatched
+                    _transmissionState.value = if (isToggleLatched && !_isMuted.value) TransmissionState.TRANSMITTING else TransmissionState.IDLE
+                }
+            }
+            IntercomMode.ALWAYS_ON -> {
+                // Always-on remains active unless muted
+            }
         }
     }
 
@@ -78,6 +127,7 @@ class IntercomRepositoryImpl @Inject constructor(
 
     override suspend fun stopIntercomSession(): Result<Unit> = runCatching {
         _isSessionActive.value = false
+        isToggleLatched = false
         _transmissionState.value = TransmissionState.IDLE
     }
 
@@ -91,7 +141,7 @@ class IntercomRepositoryImpl @Inject constructor(
                 _transmissionState.value = if (_isMuted.value) TransmissionState.IDLE else TransmissionState.TRANSMITTING
             }
             IntercomMode.TOGGLE -> {
-                _transmissionState.value = if (_isMuted.value) TransmissionState.IDLE else TransmissionState.TRANSMITTING
+                _transmissionState.value = if (isToggleLatched && !_isMuted.value) TransmissionState.TRANSMITTING else TransmissionState.IDLE
             }
             IntercomMode.PUSH_TO_TALK -> {
                 // Driven directly by handlePttPress

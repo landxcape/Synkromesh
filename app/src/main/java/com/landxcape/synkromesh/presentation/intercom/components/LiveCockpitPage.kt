@@ -20,6 +20,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -893,6 +894,57 @@ private fun TacticalQuickSettingsSheet(
             }
         }
 
+        // Virtual Convoy Ride Simulator
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { onEvent(IntercomUiEvent.ToggleVirtualSimulation) },
+            color = if (uiState.isSimulating) AccentAmber.copy(alpha = 0.15f) else DarkSurface,
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, if (uiState.isSimulating) AccentAmber else BorderSubtle)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (uiState.isSimulating) AccentAmber else TextMuted)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "CONVOY SIMULATION",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = if (uiState.isSimulating) "Apex, Mid Relay & Sweeper Active" else "Simulate 3 nodes & 2-hop relay",
+                            fontSize = 10.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+
+                Text(
+                    text = if (uiState.isSimulating) "STOP" else "START",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    color = if (uiState.isSimulating) AccentAmber else AccentCyan
+                )
+            }
+        }
+
         // 4. Audio DSP Engine & Peer Diagnostics Footer
         Row(
             modifier = Modifier
@@ -1179,6 +1231,8 @@ private fun CockpitRadarOverlay(
     meshState: MeshState,
     onClose: () -> Unit
 ) {
+    var overlayMode by remember { mutableStateOf("RADAR") }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = DarkBackground.copy(alpha = 0.97f)
@@ -1191,7 +1245,7 @@ private fun CockpitRadarOverlay(
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Header with Close
+            // Header with Segmented Toggle & Close
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1199,45 +1253,104 @@ private fun CockpitRadarOverlay(
             ) {
                 Column {
                     Text(
-                        text = "TACTICAL RADAR",
+                        text = if (overlayMode == "RADAR") "TACTICAL RADAR" else "TACTICAL MAP",
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black,
                         fontSize = 16.sp,
                         color = TextPrimary
                     )
                     Text(
-                        text = "P2P Range & Direction Vector",
+                        text = if (overlayMode == "RADAR") "P2P Range & Direction Vector" else "OpenStreetMap • Offline Cached",
                         fontSize = 11.sp,
                         color = TextMuted
                     )
                 }
 
-                Surface(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .clickable { onClose() },
-                    color = DarkSurface,
-                    border = BorderStroke(1.dp, BorderSubtle)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = TextPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // RADAR / MAP Segmented Switcher
+                    Surface(
+                        modifier = Modifier
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        color = DarkSurface,
+                        border = BorderStroke(1.dp, BorderSubtle)
+                    ) {
+                        Row(modifier = Modifier.padding(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable { overlayMode = "RADAR" },
+                                color = if (overlayMode == "RADAR") AccentCyan else DarkSurface
+                            ) {
+                                Text(
+                                    text = "RADAR",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (overlayMode == "RADAR") DarkBackground else TextSecondary,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+
+                            Surface(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable { overlayMode = "MAP" },
+                                color = if (overlayMode == "MAP") AccentCyan else DarkSurface
+                            ) {
+                                Text(
+                                    text = "MAP",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (overlayMode == "MAP") DarkBackground else TextSecondary,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Surface(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .clickable { onClose() },
+                        color = DarkSurface,
+                        border = BorderStroke(1.dp, BorderSubtle)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = TextPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // 2D Compass Radar View
-            RadarCanvasWidget(
-                riders = riders,
-                isScanning = meshState == MeshState.SEARCHING
-            )
+            // Viewport: 2D Compass Radar View OR OpenStreetMap
+            if (overlayMode == "RADAR") {
+                RadarCanvasWidget(
+                    riders = riders,
+                    isScanning = meshState == MeshState.SEARCHING
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(260.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .border(1.dp, BorderSubtle, RoundedCornerShape(14.dp))
+                ) {
+                    TacticalOsmMapView(
+                        riders = riders
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 

@@ -16,6 +16,7 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.landxcape.synkromesh.R
 import com.landxcape.synkromesh.data.datasource.audio.AudioToneFeedbackGenerator
+import com.landxcape.synkromesh.data.datasource.audio.TacticalVoiceCueEngine
 import com.landxcape.synkromesh.data.datasource.audio.FeedbackTone
 import com.landxcape.synkromesh.domain.model.MeshState
 import com.landxcape.synkromesh.domain.model.TransmissionState
@@ -57,6 +58,9 @@ class IntercomForegroundService : Service() {
 
     @Inject
     lateinit var audioToneFeedbackGenerator: AudioToneFeedbackGenerator
+
+    @Inject
+    lateinit var tacticalVoiceCueEngine: TacticalVoiceCueEngine
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + Job())
     private var peerMonitoringJob: Job? = null
@@ -138,14 +142,36 @@ class IntercomForegroundService : Service() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wifiLock?.let { if (it.isHeld) it.release() }
         multicastLock?.let { if (it.isHeld) it.release() }
+        tacticalVoiceCueEngine.shutdown()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     private fun startPeerNotificationMonitoring() {
         peerMonitoringJob?.cancel()
+        val knownPeerIds = mutableSetOf<String>()
         peerMonitoringJob = serviceScope.launch {
             meshNetworkRepository.observePeers().collect { peers ->
+                val currentPeerIds = peers.map { it.id }.toSet()
+                for (peer in peers) {
+                    if (!knownPeerIds.contains(peer.id)) {
+                        tacticalVoiceCueEngine.announcePeerJoined(peer.callsign, 1)
+                        if (peer.hopCount > 1) {
+                            tacticalVoiceCueEngine.announceRelayEngaged(peer.callsign, peer.hopCount)
+                        }
+                    }
+                    if (peer.batteryPercent != null && peer.batteryPercent!! <= 20) {
+                        tacticalVoiceCueEngine.announceBatteryCritical(peer.callsign, peer.batteryPercent!!)
+                    }
+                }
+                for (oldId in knownPeerIds) {
+                    if (!currentPeerIds.contains(oldId)) {
+                        tacticalVoiceCueEngine.announcePeerLost("Rider")
+                    }
+                }
+                knownPeerIds.clear()
+                knownPeerIds.addAll(currentPeerIds)
+
                 val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 val statusText = if (peers.isEmpty()) {
                     "Mesh Searching • Helmet SCO Ready"

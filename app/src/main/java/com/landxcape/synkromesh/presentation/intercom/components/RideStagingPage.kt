@@ -840,6 +840,57 @@ private fun AudioHardwareContent(
                     }
                 }
             }
+
+            // 6. Virtual Convoy Ride Simulator Card
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onEvent(IntercomUiEvent.ToggleVirtualSimulation) },
+                color = if (uiState.isSimulating) AccentAmber.copy(alpha = 0.15f) else DarkBackground,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, if (uiState.isSimulating) AccentAmber else BorderSubtle)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(if (uiState.isSimulating) AccentAmber else TextMuted)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "VIRTUAL CONVOY SIMULATOR",
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = if (uiState.isSimulating) "Simulating Apex Lead, Mid Relay & Sweeper" else "Test map, radar, relays & audio gain",
+                                fontSize = 10.sp,
+                                color = TextMuted
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = if (uiState.isSimulating) "STOP" else "SIMULATE",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = if (uiState.isSimulating) AccentAmber else AccentCyan
+                    )
+                }
+            }
         }
 }
 

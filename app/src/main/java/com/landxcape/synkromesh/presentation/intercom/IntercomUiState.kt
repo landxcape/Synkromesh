@@ -61,7 +61,8 @@ data class IntercomUiState(
     val riders: List<Rider> = emptyList(),
     val packToken: String? = null,
     val errorMessage: String? = null,
-    val isLowLatencyPowerMode: Boolean = true
+    val isLowLatencyPowerMode: Boolean = true,
+    val isSimulating: Boolean = false
 )
 
 sealed interface IntercomUiEvent {
@@ -94,4 +95,5 @@ sealed interface IntercomUiEvent {
     data object ReturnToStaging : IntercomUiEvent
     data object ToggleRadarOverlay : IntercomUiEvent
     data object ClearError : IntercomUiEvent
+    data object ToggleVirtualSimulation : IntercomUiEvent
 }

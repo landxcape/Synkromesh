@@ -14,7 +14,9 @@ data class Rider(
     val speedKmh: Float? = null,
     val batteryPercent: Int? = null,
     val packetLossPercent: Float = 0f,
-    val hopCount: Int = 1
+    val hopCount: Int = 1,
+    val latitude: Double? = null,
+    val longitude: Double? = null
 ) {
     val isRelayed: Boolean get() = hopCount > 1
 

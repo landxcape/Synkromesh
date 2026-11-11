@@ -11,6 +11,7 @@ import com.landxcape.synkromesh.data.datasource.bluetooth.PairedHeadset
 import com.landxcape.synkromesh.data.datasource.local.PreferencesDataSource
 import com.landxcape.synkromesh.data.datasource.mesh.LocationTelemetryDataSource
 import com.landxcape.synkromesh.data.datasource.mesh.WifiHotspotClientDriver
+import com.landxcape.synkromesh.data.datasource.mesh.simulator.VirtualRideSimulator
 import com.landxcape.synkromesh.domain.model.AudioLevel
 import com.landxcape.synkromesh.domain.model.AudioRoutingState
 import com.landxcape.synkromesh.domain.model.HotspotClientState
@@ -68,7 +69,8 @@ class IntercomViewModel @Inject constructor(
     private val observeAudioLevelUseCase: ObserveAudioLevelUseCase,
     private val toggleLoopbackUseCase: ToggleLoopbackUseCase,
     private val audioToneFeedbackGenerator: AudioToneFeedbackGenerator,
-    private val speedAdaptiveGainController: SpeedAdaptiveGainController
+    private val speedAdaptiveGainController: SpeedAdaptiveGainController,
+    private val virtualRideSimulator: VirtualRideSimulator
 ) : ViewModel() {
 
     private val _errorFlow = MutableStateFlow<String?>(null)
@@ -173,7 +175,9 @@ class IntercomViewModel @Inject constructor(
         _groupingMode,
         _isRadarOverlayActive,
         _packToken,
-        _isSessionEngaging
+        _isSessionEngaging,
+        virtualRideSimulator.isSimulating,
+        virtualRideSimulator.simulatedRiders
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         DialogsAndPreflightState(
@@ -189,7 +193,9 @@ class IntercomViewModel @Inject constructor(
             groupingMode = args[9] as GroupingMode,
             isRadarOverlayActive = args[10] as Boolean,
             packToken = args[11] as String?,
-            isSessionEngaging = args[12] as Boolean
+            isSessionEngaging = args[12] as Boolean,
+            isSimulating = args[13] as Boolean,
+            simulatedRiders = args[14] as List<Rider>
         )
     }
 
@@ -199,7 +205,7 @@ class IntercomViewModel @Inject constructor(
         dialogsAndPreflightFlow,
         hotspotFlow
     ) { audioMesh, prefs, dialogs, hotspot ->
-        val mappedRiders = audioMesh.peers.map { peer ->
+        val baseRiders = audioMesh.peers.map { peer ->
             val relLabel = peer.relativeBearingDegrees?.let {
                 LocationTelemetryDataSource.getRelativePositionLabel(it)
             } ?: if (peer.latitude != null) "GPS Locked" else "Direct Mesh"
@@ -218,8 +224,16 @@ class IntercomViewModel @Inject constructor(
                 speedKmh = peer.speedKmh,
                 batteryPercent = peer.batteryPercent,
                 packetLossPercent = peer.packetLossPercent ?: 0f,
+                latitude = peer.latitude,
+                longitude = peer.longitude,
                 hopCount = peer.hopCount
             )
+        }
+
+        val mappedRiders = if (dialogs.isSimulating) {
+            dialogs.simulatedRiders + baseRiders
+        } else {
+            baseRiders
         }
 
         IntercomUiState(
@@ -260,7 +274,8 @@ class IntercomViewModel @Inject constructor(
             riders = mappedRiders,
             packToken = dialogs.packToken,
             errorMessage = dialogs.errorMessage,
-            isLowLatencyPowerMode = audioMesh.isLowLatencyPowerMode
+            isLowLatencyPowerMode = audioMesh.isLowLatencyPowerMode,
+            isSimulating = dialogs.isSimulating
         )
     }.stateIn(
         scope = viewModelScope,
@@ -300,8 +315,14 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.ReturnToStaging -> onReturnToStaging()
                 is IntercomUiEvent.ToggleRadarOverlay -> _isRadarOverlayActive.value = !_isRadarOverlayActive.value
                 is IntercomUiEvent.ClearError -> _errorFlow.value = null
+                is IntercomUiEvent.ToggleVirtualSimulation -> virtualRideSimulator.toggleSimulation()
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        virtualRideSimulator.stopSimulation()
     }
 
     fun getRequiredPermissions(): List<String> = preflightManager.getRequiredPermissions()
@@ -558,7 +579,9 @@ class IntercomViewModel @Inject constructor(
         val groupingMode: GroupingMode,
         val isRadarOverlayActive: Boolean,
         val packToken: String?,
-        val isSessionEngaging: Boolean
+        val isSessionEngaging: Boolean,
+        val isSimulating: Boolean,
+        val simulatedRiders: List<Rider>
     )
 
     private data class HotspotCombinedState(

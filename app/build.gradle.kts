@@ -121,6 +121,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -173,6 +174,9 @@ dependencies {
 
     // Offline P2P Mesh
     implementation(libs.google.play.services.nearby)
+
+    // Free OpenStreetMap (Zero-API Key, Offline Tile Cached)
+    implementation(libs.osmdroid.android)
 
     // QR Code Generation & Scanning (Zero Camera Permission via Play Services)
     implementation(libs.google.play.services.code.scanner)
