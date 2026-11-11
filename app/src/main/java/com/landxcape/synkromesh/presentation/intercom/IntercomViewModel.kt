@@ -33,6 +33,7 @@ import com.landxcape.synkromesh.domain.usecase.ToggleMicrophoneMuteUseCase
 import com.landxcape.synkromesh.util.BatteryOptimizationManager
 import com.landxcape.synkromesh.util.HardwarePreflightManager
 import com.landxcape.synkromesh.util.PreflightStatus
+import com.landxcape.synkromesh.util.RideQrData
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -272,6 +273,7 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.SelectGroupingMode -> onSelectGroupingMode(event.mode)
                 is IntercomUiEvent.SetPackToken -> onSetPackToken(event.token)
                 is IntercomUiEvent.ConnectLeadHotspot -> onConnectLeadHotspot(event.ssid, event.password)
+                is IntercomUiEvent.ProcessScannedQr -> onProcessScannedQr(event.qrData)
                 is IntercomUiEvent.DisconnectHotspotClicked -> onDisconnectHotspot()
                 is IntercomUiEvent.EngageIntercom -> onEngageIntercom()
                 is IntercomUiEvent.ReturnToStaging -> onReturnToStaging()
@@ -384,6 +386,19 @@ class IntercomViewModel @Inject constructor(
         meshNetworkRepository.connectToLeadHotspot(ssid, password.orEmpty())
     }
 
+    private suspend fun onProcessScannedQr(data: RideQrData) {
+        preferencesDataSource.saveRideChannel(data.channel)
+        _packToken.value = data.packToken
+        meshNetworkRepository.setPackToken(data.packToken)
+
+        if (!data.ssid.isNullOrBlank()) {
+            _groupingMode.value = GroupingMode.JOIN
+            meshNetworkRepository.connectToLeadHotspot(data.ssid, data.password.orEmpty())
+        } else {
+            _groupingMode.value = GroupingMode.OPEN_MESH
+        }
+    }
+
     private fun onDisconnectHotspot() {
         wifiHotspotClientDriver.disconnect()
     }
@@ -400,13 +415,16 @@ class IntercomViewModel @Inject constructor(
         val isSessionActive = intercomRepository.observeIsSessionActive().first()
         if (!isSessionActive) {
             if (_groupingMode.value == GroupingMode.JOIN) {
-                val connected = withTimeoutOrNull(15_000L) {
-                    wifiHotspotClientDriver.isConnected.first { it }
-                }
-                if (connected == null) {
-                    _isSessionEngaging.value = false
-                    _errorFlow.value = "Could not reach Lead hotspot. Ensure Leader hotspot is active, then try again."
-                    return
+                val isAlreadyConnected = wifiHotspotClientDriver.isConnected.value
+                if (!isAlreadyConnected) {
+                    val connected = withTimeoutOrNull(15_000L) {
+                        wifiHotspotClientDriver.isConnected.first { it }
+                    }
+                    if (connected == null) {
+                        _isSessionEngaging.value = false
+                        _errorFlow.value = "Could not reach Lead hotspot. Ensure Leader hotspot is active, then try again."
+                        return
+                    }
                 }
             }
 

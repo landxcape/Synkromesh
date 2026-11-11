@@ -822,7 +822,7 @@ private fun LeadPackContent(
 ) {
     val scrollState = rememberScrollState()
     val qrData = remember(channel, callsign, hotspotSsid, hotspotPassword, packToken, isHotspotActive) {
-        if (!isHotspotActive) null
+        if (!isHotspotActive || hotspotSsid.isNullOrBlank()) null
         else RideQrData(
             channel = channel,
             callsign = callsign,

@@ -189,15 +189,14 @@ fun IntercomScreen(
                     val rawValue = barcode.rawValue ?: return@addOnSuccessListener
                     val data = RideQrData.fromUriString(rawValue)
                     if (data != null) {
-                        onEvent(IntercomUiEvent.SaveRideChannel(data.channel))
-                        onEvent(IntercomUiEvent.SelectGroupingMode(GroupingMode.JOIN))
-                        onEvent(IntercomUiEvent.SetPackToken(data.packToken))
-                        if (!data.ssid.isNullOrBlank()) {
-                            onEvent(IntercomUiEvent.ConnectLeadHotspot(data.ssid, data.password))
-                        }
-                        onEvent(IntercomUiEvent.EngageIntercom)
+                        onEvent(IntercomUiEvent.ProcessScannedQr(data))
                         coroutineScope.launch {
-                            snackbarHostState.showSnackbar("Joined Channel ${data.channel} (Host: ${data.callsign})")
+                            val msg = if (!data.ssid.isNullOrBlank()) {
+                                "Found Lead Hotspot (${data.ssid}) for Channel ${data.channel}. Connecting..."
+                            } else {
+                                "Matched Channel ${data.channel} (Host: ${data.callsign})"
+                            }
+                            snackbarHostState.showSnackbar(msg)
                         }
                     } else {
                         coroutineScope.launch {

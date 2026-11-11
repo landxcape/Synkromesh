@@ -9,6 +9,7 @@ import com.landxcape.synkromesh.domain.model.MeshState
 import com.landxcape.synkromesh.domain.model.Rider
 import com.landxcape.synkromesh.domain.model.TransmissionState
 import com.landxcape.synkromesh.util.PreflightStatus
+import com.landxcape.synkromesh.util.RideQrData
 
 enum class CockpitPhase {
     STAGING,
@@ -83,6 +84,7 @@ sealed interface IntercomUiEvent {
     data class SelectGroupingMode(val mode: GroupingMode) : IntercomUiEvent
     data class SetPackToken(val token: String?) : IntercomUiEvent
     data class ConnectLeadHotspot(val ssid: String, val password: String? = null) : IntercomUiEvent
+    data class ProcessScannedQr(val qrData: RideQrData) : IntercomUiEvent
     data object EngageIntercom : IntercomUiEvent
     data object ReturnToStaging : IntercomUiEvent
     data object ToggleRadarOverlay : IntercomUiEvent

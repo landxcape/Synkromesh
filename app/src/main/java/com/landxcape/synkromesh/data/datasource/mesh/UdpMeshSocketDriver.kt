@@ -17,8 +17,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.net.DatagramPacket
 import java.net.DatagramSocket
+import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.NetworkInterface
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentHashMap
@@ -151,6 +153,29 @@ class UdpMeshSocketDriver @Inject constructor(
         }
     }
 
+    private fun getActiveBroadcastAddresses(): List<InetAddress> {
+        val targets = mutableListOf<InetAddress>()
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val iface = interfaces.nextElement()
+                if (!iface.isUp || iface.isLoopback) continue
+                for (addr in iface.interfaceAddresses) {
+                    val bcast = addr.broadcast
+                    if (bcast != null && bcast is Inet4Address) {
+                        targets.add(bcast)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        if (targets.isEmpty()) {
+            try {
+                targets.add(InetAddress.getByName("255.255.255.255"))
+            } catch (_: Exception) {}
+        }
+        return targets
+    }
+
     private fun sendDatagram(type: Byte, seq: Long, payload: ByteArray) {
         val socket = datagramSocket ?: return
         val tokenPart = if (!activePackToken.isNullOrBlank()) "|${activePackToken.hashCode()}" else ""
@@ -169,8 +194,20 @@ class UdpMeshSocketDriver @Inject constructor(
         }
 
         val data = buffer.array()
-        val datagram = DatagramPacket(data, data.size, broadcastTarget, UDP_PORT)
-        socket.send(datagram)
+        if (broadcastTarget.hostAddress != "255.255.255.255") {
+            try {
+                val datagram = DatagramPacket(data, data.size, broadcastTarget, UDP_PORT)
+                socket.send(datagram)
+            } catch (_: Exception) {}
+        } else {
+            val targets = getActiveBroadcastAddresses()
+            for (target in targets) {
+                try {
+                    val datagram = DatagramPacket(data, data.size, target, UDP_PORT)
+                    socket.send(datagram)
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     private fun handleIncomingDatagram(data: ByteArray, length: Int, hostIp: String?) {
