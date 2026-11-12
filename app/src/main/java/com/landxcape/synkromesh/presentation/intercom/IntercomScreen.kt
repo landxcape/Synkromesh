@@ -178,6 +178,7 @@ fun IntercomScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val preflightSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val settingsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var isChannelPickerOpen by remember { mutableStateOf(false) }
     var isQrDialogOpen by remember { mutableStateOf(false) }
@@ -253,6 +254,33 @@ fun IntercomScreen(
         )
     }
 
+    // Settings & About Bottom Sheet
+    if (uiState.isSettingsOpen) {
+        SettingsSheet(
+            callsign = uiState.callsign,
+            rideChannel = uiState.rideChannel,
+            vadThreshold = uiState.vadThreshold,
+            opusBitrate = uiState.opusBitrate,
+            isLoopbackActive = uiState.isLoopbackActive,
+            isSpeakerphoneOn = uiState.isSpeakerphoneOn,
+            audioRouting = uiState.audioRouting,
+            pairedHeadsets = uiState.pairedHeadsets,
+            preflightStatus = uiState.preflightStatus,
+            onOpenCallsignDialog = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(true)) },
+            onSelectChannel = { onEvent(IntercomUiEvent.SaveRideChannel(it)) },
+            onVadThresholdChanged = { onEvent(IntercomUiEvent.SaveVadThreshold(it)) },
+            onOpusBitrateChanged = { onEvent(IntercomUiEvent.SaveOpusBitrate(it)) },
+            onToggleLoopback = { onEvent(IntercomUiEvent.ToggleLoopbackClicked) },
+            onToggleSpeakerphone = { onEvent(IntercomUiEvent.ToggleSpeakerphoneClicked) },
+            onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
+            onOpenPermissions = { onEvent(IntercomUiEvent.SetPermissionSheetVisible(true)) },
+            onDismiss = { onEvent(IntercomUiEvent.SetSettingsVisible(false)) },
+            sheetState = settingsSheetState,
+            updateStatus = uiState.updateStatus,
+            onEvent = onEvent
+        )
+    }
+
     // Ride Channel Picker Bottom Sheet
     if (isChannelPickerOpen) {
         ChannelPickerSheet(
@@ -273,13 +301,18 @@ fun IntercomScreen(
     }
 
     // Back navigation handling:
+    // 0. If Settings & About sheet is open, back gesture dismisses the sheet
+    BackHandler(enabled = uiState.isSettingsOpen) {
+        onEvent(IntercomUiEvent.SetSettingsVisible(false))
+    }
+
     // 1. If radar overlay is open, back gesture collapses the radar overlay
-    BackHandler(enabled = uiState.isRadarOverlayActive) {
+    BackHandler(enabled = !uiState.isSettingsOpen && uiState.isRadarOverlayActive) {
         onEvent(IntercomUiEvent.ToggleRadarOverlay)
     }
 
     // 2. If in Cockpit mode, back gesture returns to Staging Lobby rather than exiting the app
-    BackHandler(enabled = !uiState.isRadarOverlayActive && uiState.cockpitPhase == CockpitPhase.COCKPIT) {
+    BackHandler(enabled = !uiState.isSettingsOpen && !uiState.isRadarOverlayActive && uiState.cockpitPhase == CockpitPhase.COCKPIT) {
         onEvent(IntercomUiEvent.ReturnToStaging)
     }
 

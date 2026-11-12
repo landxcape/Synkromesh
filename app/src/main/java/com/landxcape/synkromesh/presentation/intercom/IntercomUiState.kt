@@ -1,6 +1,7 @@
 package com.landxcape.synkromesh.presentation.intercom
 
 import com.landxcape.synkromesh.data.datasource.bluetooth.PairedHeadset
+import com.landxcape.synkromesh.data.datasource.update.AppUpdateInfo
 import com.landxcape.synkromesh.domain.model.AudioRoutingState
 import com.landxcape.synkromesh.domain.model.HelmetAcousticProfile
 import com.landxcape.synkromesh.domain.model.HotspotClientState
@@ -21,6 +22,15 @@ enum class GroupingMode {
     LEAD,
     JOIN,
     OPEN_MESH
+}
+
+sealed interface UpdateStatus {
+    data object Idle : UpdateStatus
+    data object Checking : UpdateStatus
+    data class UpToDate(val version: String) : UpdateStatus
+    data class UpdateAvailable(val info: AppUpdateInfo) : UpdateStatus
+    data class Downloading(val progress: Int) : UpdateStatus
+    data class Error(val message: String) : UpdateStatus
 }
 
 data class IntercomUiState(
@@ -64,7 +74,8 @@ data class IntercomUiState(
     val packToken: String? = null,
     val errorMessage: String? = null,
     val isLowLatencyPowerMode: Boolean = true,
-    val isSimulating: Boolean = false
+    val isSimulating: Boolean = false,
+    val updateStatus: UpdateStatus = UpdateStatus.Idle
 )
 
 sealed interface IntercomUiEvent {
@@ -100,4 +111,6 @@ sealed interface IntercomUiEvent {
     data object ToggleVirtualSimulation : IntercomUiEvent
     data class ToggleSpeedGain(val enabled: Boolean) : IntercomUiEvent
     data class SetMapFullscreen(val isFullscreen: Boolean) : IntercomUiEvent
+    data object CheckForUpdates : IntercomUiEvent
+    data class DownloadAndInstallUpdate(val downloadUrl: String) : IntercomUiEvent
 }

@@ -13,6 +13,7 @@ import com.landxcape.synkromesh.data.datasource.local.PreferencesDataSource
 import com.landxcape.synkromesh.data.datasource.mesh.LocationTelemetryDataSource
 import com.landxcape.synkromesh.data.datasource.mesh.WifiHotspotClientDriver
 import com.landxcape.synkromesh.data.datasource.mesh.simulator.VirtualRideSimulator
+import com.landxcape.synkromesh.data.datasource.update.AppUpdateManager
 import com.landxcape.synkromesh.domain.model.AudioLevel
 import com.landxcape.synkromesh.domain.model.AudioRoutingState
 import com.landxcape.synkromesh.domain.model.HotspotClientState
@@ -71,7 +72,8 @@ class IntercomViewModel @Inject constructor(
     private val toggleLoopbackUseCase: ToggleLoopbackUseCase,
     private val audioToneFeedbackGenerator: AudioToneFeedbackGenerator,
     private val speedAdaptiveGainController: SpeedAdaptiveGainController,
-    private val virtualRideSimulator: VirtualRideSimulator
+    private val virtualRideSimulator: VirtualRideSimulator,
+    private val appUpdateManager: AppUpdateManager
 ) : ViewModel() {
 
     private val _errorFlow = MutableStateFlow<String?>(null)
@@ -86,6 +88,7 @@ class IntercomViewModel @Inject constructor(
     private val _isSessionEngaging = MutableStateFlow(false)
     private val _mutedPeerIds = MutableStateFlow<Set<String>>(emptySet())
     private val _packToken = MutableStateFlow<String?>(null)
+    private val _updateStatus = MutableStateFlow<UpdateStatus>(UpdateStatus.Idle)
 
     init {
         refreshPreflightAndDevices()
@@ -182,7 +185,8 @@ class IntercomViewModel @Inject constructor(
         _isSessionEngaging,
         virtualRideSimulator.isSimulating,
         virtualRideSimulator.simulatedRiders,
-        _isMapFullscreen
+        _isMapFullscreen,
+        _updateStatus
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         DialogsAndPreflightState(
@@ -201,7 +205,8 @@ class IntercomViewModel @Inject constructor(
             isSessionEngaging = args[12] as Boolean,
             isSimulating = args[13] as Boolean,
             simulatedRiders = args[14] as List<Rider>,
-            isMapFullscreen = args[15] as Boolean
+            isMapFullscreen = args[15] as Boolean,
+            updateStatus = args[16] as UpdateStatus
         )
     }
 
@@ -283,7 +288,8 @@ class IntercomViewModel @Inject constructor(
             packToken = dialogs.packToken,
             errorMessage = dialogs.errorMessage,
             isLowLatencyPowerMode = audioMesh.isLowLatencyPowerMode,
-            isSimulating = if (BuildConfig.DEBUG) dialogs.isSimulating else false
+            isSimulating = if (BuildConfig.DEBUG) dialogs.isSimulating else false,
+            updateStatus = dialogs.updateStatus
         )
     }.stateIn(
         scope = viewModelScope,
@@ -330,6 +336,8 @@ class IntercomViewModel @Inject constructor(
                 }
                 is IntercomUiEvent.ToggleSpeedGain -> preferencesDataSource.saveSpeedGainEnabled(event.enabled)
                 is IntercomUiEvent.SetMapFullscreen -> _isMapFullscreen.value = event.isFullscreen
+                is IntercomUiEvent.CheckForUpdates -> onCheckForUpdates()
+                is IntercomUiEvent.DownloadAndInstallUpdate -> onDownloadAndInstallUpdate(event.downloadUrl)
             }
         }
     }
@@ -344,6 +352,34 @@ class IntercomViewModel @Inject constructor(
     private fun refreshPreflightAndDevices() {
         preflightManager.refresh()
         bluetoothDeviceManager.refreshPairedDevices()
+    }
+
+    private fun onCheckForUpdates() {
+        viewModelScope.launch {
+            _updateStatus.value = UpdateStatus.Checking
+            appUpdateManager.checkForUpdate()
+                .onSuccess { info ->
+                    if (info.isUpdateAvailable) {
+                        _updateStatus.value = UpdateStatus.UpdateAvailable(info)
+                    } else {
+                        _updateStatus.value = UpdateStatus.UpToDate(info.currentVersion)
+                    }
+                }
+                .onFailure { err ->
+                    _updateStatus.value = UpdateStatus.Error(err.message ?: "Failed to check for updates")
+                }
+        }
+    }
+
+    private fun onDownloadAndInstallUpdate(downloadUrl: String) {
+        viewModelScope.launch {
+            _updateStatus.value = UpdateStatus.Downloading(0)
+            appUpdateManager.downloadAndInstallUpdate(downloadUrl) { progress ->
+                _updateStatus.value = UpdateStatus.Downloading(progress)
+            }.onFailure { err ->
+                _updateStatus.value = UpdateStatus.Error(err.message ?: "Update download failed")
+            }
+        }
     }
 
     private suspend fun onSaveCallsign(newCallsign: String) {
@@ -597,7 +633,8 @@ class IntercomViewModel @Inject constructor(
         val isSessionEngaging: Boolean,
         val isSimulating: Boolean,
         val simulatedRiders: List<Rider>,
-        val isMapFullscreen: Boolean
+        val isMapFullscreen: Boolean,
+        val updateStatus: UpdateStatus
     )
 
     private data class HotspotCombinedState(

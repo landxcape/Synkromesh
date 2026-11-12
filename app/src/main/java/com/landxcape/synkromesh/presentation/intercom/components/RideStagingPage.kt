@@ -170,7 +170,7 @@ fun RideStagingPage(
                     headsetName = uiState.audioRouting.connectedDeviceName,
                     onEditCallsign = { onEvent(IntercomUiEvent.SetCallsignDialogVisible(true)) },
                     onToggleSco = { onEvent(IntercomUiEvent.ToggleBluetoothScoClicked) },
-                    onOpenPreflight = { onEvent(IntercomUiEvent.SetPermissionSheetVisible(true)) }
+                    onOpenSettings = { onEvent(IntercomUiEvent.SetSettingsVisible(true)) }
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -336,7 +336,7 @@ private fun TechnicalHeaderBar(
     headsetName: String?,
     onEditCallsign: () -> Unit,
     onToggleSco: () -> Unit,
-    onOpenPreflight: () -> Unit
+    onOpenSettings: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -419,7 +419,7 @@ private fun TechnicalHeaderBar(
                 modifier = Modifier
                     .size(34.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .clickable { onOpenPreflight() },
+                    .clickable { onOpenSettings() },
                 color = DarkSurface,
                 shape = RoundedCornerShape(8.dp),
                 border = BorderStroke(1.dp, BorderSubtle)
@@ -427,7 +427,7 @@ private fun TechnicalHeaderBar(
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.Settings,
-                        contentDescription = "Preflight Settings",
+                        contentDescription = "Settings",
                         tint = TextSecondary,
                         modifier = Modifier.size(17.dp)
                     )
@@ -956,6 +956,9 @@ private fun AudioHardwareContent(
                     }
                 }
             }
+
+            // Bottom clearance for floating bottom dock
+            Spacer(modifier = Modifier.height(110.dp))
         }
 }
 

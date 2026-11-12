@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.landxcape.synkromesh.data.datasource.bluetooth.PairedHeadset
 import com.landxcape.synkromesh.domain.model.AudioRoutingState
+import com.landxcape.synkromesh.presentation.intercom.components.AboutAndUpdateCard
 import com.landxcape.synkromesh.presentation.theme.AccentAmber
 import com.landxcape.synkromesh.presentation.theme.AccentCyan
 import com.landxcape.synkromesh.presentation.theme.AccentGreen
@@ -83,7 +84,9 @@ fun SettingsSheet(
     onToggleSco: () -> Unit,
     onOpenPermissions: () -> Unit,
     onDismiss: () -> Unit,
-    sheetState: SheetState
+    sheetState: SheetState,
+    updateStatus: UpdateStatus = UpdateStatus.Idle,
+    onEvent: ((IntercomUiEvent) -> Unit)? = null
 ) {
     val context = LocalContext.current
 
@@ -108,7 +111,7 @@ fun SettingsSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Intercom Settings",
+                    text = "Settings & About",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = AccentCyan
@@ -404,7 +407,18 @@ fun SettingsSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(30.dp))
+            if (onEvent != null) {
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // 6. About & In-App Updates
+                SettingsSectionHeader(title = "About & System Updates")
+                AboutAndUpdateCard(
+                    updateStatus = updateStatus,
+                    onEvent = onEvent
+                )
+            }
+
+            Spacer(modifier = Modifier.height(48.dp))
         }
     }
 }
