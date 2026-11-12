@@ -13,7 +13,9 @@ import com.landxcape.synkromesh.data.datasource.local.PreferencesDataSource
 import com.landxcape.synkromesh.data.datasource.mesh.LocationTelemetryDataSource
 import com.landxcape.synkromesh.data.datasource.mesh.WifiHotspotClientDriver
 import com.landxcape.synkromesh.data.datasource.mesh.simulator.VirtualRideSimulator
+import com.landxcape.synkromesh.data.datasource.update.AppUpdateInfo
 import com.landxcape.synkromesh.data.datasource.update.AppUpdateManager
+import java.io.File
 import com.landxcape.synkromesh.domain.model.AudioLevel
 import com.landxcape.synkromesh.domain.model.AudioRoutingState
 import com.landxcape.synkromesh.domain.model.HotspotClientState
@@ -337,7 +339,8 @@ class IntercomViewModel @Inject constructor(
                 is IntercomUiEvent.ToggleSpeedGain -> preferencesDataSource.saveSpeedGainEnabled(event.enabled)
                 is IntercomUiEvent.SetMapFullscreen -> _isMapFullscreen.value = event.isFullscreen
                 is IntercomUiEvent.CheckForUpdates -> onCheckForUpdates()
-                is IntercomUiEvent.DownloadAndInstallUpdate -> onDownloadAndInstallUpdate(event.downloadUrl)
+                is IntercomUiEvent.DownloadAndInstallUpdate -> onDownloadAndInstallUpdate(event.info)
+                is IntercomUiEvent.InstallDownloadedApk -> onInstallDownloadedApk(event.apkFile)
             }
         }
     }
@@ -371,14 +374,25 @@ class IntercomViewModel @Inject constructor(
         }
     }
 
-    private fun onDownloadAndInstallUpdate(downloadUrl: String) {
+    private fun onDownloadAndInstallUpdate(info: AppUpdateInfo) {
         viewModelScope.launch {
             _updateStatus.value = UpdateStatus.Downloading(0)
-            appUpdateManager.downloadAndInstallUpdate(downloadUrl) { progress ->
+            appUpdateManager.downloadUpdate(info.downloadUrl) { progress ->
                 _updateStatus.value = UpdateStatus.Downloading(progress)
+            }.onSuccess { apkFile ->
+                _updateStatus.value = UpdateStatus.ReadyToInstall(apkFile, info)
+                appUpdateManager.launchInstaller(apkFile).onFailure { err ->
+                    _errorFlow.value = err.message
+                }
             }.onFailure { err ->
                 _updateStatus.value = UpdateStatus.Error(err.message ?: "Update download failed")
             }
+        }
+    }
+
+    private fun onInstallDownloadedApk(apkFile: File) {
+        appUpdateManager.launchInstaller(apkFile).onFailure { err ->
+            _errorFlow.value = err.message
         }
     }
 

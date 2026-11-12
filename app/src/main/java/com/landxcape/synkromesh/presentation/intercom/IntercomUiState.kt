@@ -3,6 +3,7 @@ package com.landxcape.synkromesh.presentation.intercom
 import com.landxcape.synkromesh.data.datasource.bluetooth.PairedHeadset
 import com.landxcape.synkromesh.data.datasource.update.AppUpdateInfo
 import com.landxcape.synkromesh.domain.model.AudioRoutingState
+import java.io.File
 import com.landxcape.synkromesh.domain.model.HelmetAcousticProfile
 import com.landxcape.synkromesh.domain.model.HotspotClientState
 import com.landxcape.synkromesh.domain.model.IntercomMode
@@ -30,6 +31,7 @@ sealed interface UpdateStatus {
     data class UpToDate(val version: String) : UpdateStatus
     data class UpdateAvailable(val info: AppUpdateInfo) : UpdateStatus
     data class Downloading(val progress: Int) : UpdateStatus
+    data class ReadyToInstall(val apkFile: File, val info: AppUpdateInfo) : UpdateStatus
     data class Error(val message: String) : UpdateStatus
 }
 
@@ -112,5 +114,6 @@ sealed interface IntercomUiEvent {
     data class ToggleSpeedGain(val enabled: Boolean) : IntercomUiEvent
     data class SetMapFullscreen(val isFullscreen: Boolean) : IntercomUiEvent
     data object CheckForUpdates : IntercomUiEvent
-    data class DownloadAndInstallUpdate(val downloadUrl: String) : IntercomUiEvent
+    data class DownloadAndInstallUpdate(val info: AppUpdateInfo) : IntercomUiEvent
+    data class InstallDownloadedApk(val apkFile: File) : IntercomUiEvent
 }

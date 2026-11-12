@@ -2,7 +2,9 @@ package com.landxcape.synkromesh.data.datasource.update
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.landxcape.synkromesh.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -91,10 +93,10 @@ class AppUpdateManager @Inject constructor(
         }
     }
 
-    suspend fun downloadAndInstallUpdate(
+    suspend fun downloadUpdate(
         downloadUrl: String,
         onProgress: (Int) -> Unit
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
             val updatesDir = File(context.cacheDir, "updates").apply {
                 if (!exists()) mkdirs()
@@ -104,19 +106,49 @@ class AppUpdateManager @Inject constructor(
                 apkFile.delete()
             }
 
-            val connection = (URL(downloadUrl).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 15000
-                readTimeout = 15000
-                instanceFollowRedirects = true
+            var currentUrl = downloadUrl
+            var connection: HttpURLConnection? = null
+            var redirectHops = 0
+
+            while (redirectHops < 5) {
+                val conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 15000
+                    readTimeout = 20000
+                    instanceFollowRedirects = false
+                    setRequestProperty("User-Agent", "Synkromesh-Android/${BuildConfig.VERSION_NAME}")
+                    setRequestProperty("Accept", "application/octet-stream")
+                }
+
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val location = conn.getHeaderField("Location")
+                        ?: throw IllegalStateException("Redirected with HTTP $code but missing Location header")
+                    conn.disconnect()
+                    currentUrl = if (location.startsWith("http://") || location.startsWith("https://")) {
+                        location
+                    } else {
+                        URL(URL(currentUrl), location).toString()
+                    }
+                    redirectHops++
+                } else if (code in 200..299) {
+                    connection = conn
+                    break
+                } else {
+                    conn.disconnect()
+                    throw IllegalStateException("HTTP server returned error $code")
+                }
             }
 
-            val contentLength = connection.contentLength
+            val finalConnection = connection
+                ?: throw IllegalStateException("Exceeded maximum redirect hops while downloading update")
+
+            val contentLength = finalConnection.contentLengthLong
             var totalBytesRead = 0L
 
-            connection.inputStream.use { input ->
+            finalConnection.inputStream.use { input ->
                 FileOutputStream(apkFile).use { output ->
-                    val buffer = ByteArray(8192)
+                    val buffer = ByteArray(32768)
                     var bytesRead: Int
                     while (input.read(buffer).also { bytesRead = it } != -1) {
                         output.write(buffer, 0, bytesRead)
@@ -129,10 +161,32 @@ class AppUpdateManager @Inject constructor(
                     output.flush()
                 }
             }
-            connection.disconnect()
+            finalConnection.disconnect()
 
+            if (!apkFile.exists() || apkFile.length() < 100_000L) {
+                throw IllegalStateException("Downloaded APK is corrupted or incomplete (${apkFile.length()} bytes)")
+            }
+
+            onProgress(100)
+            apkFile
+        }
+    }
+
+    fun launchInstaller(apkFile: File): Result<Unit> {
+        return runCatching {
             if (!apkFile.exists() || apkFile.length() == 0L) {
-                throw IllegalStateException("Downloaded APK is empty or missing")
+                throw IllegalStateException("APK file is missing or empty")
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (!context.packageManager.canRequestPackageInstalls()) {
+                    val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(settingsIntent)
+                    throw IllegalStateException("Please enable 'Allow from this source' for Synkromesh and tap INSTALL UPDATE")
+                }
             }
 
             val authority = "${context.packageName}.fileprovider"

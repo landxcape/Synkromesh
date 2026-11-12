@@ -331,7 +331,7 @@ fun AboutAndUpdateCard(
 
                             Button(
                                 onClick = {
-                                    onEvent(IntercomUiEvent.DownloadAndInstallUpdate(updateStatus.info.downloadUrl))
+                                    onEvent(IntercomUiEvent.DownloadAndInstallUpdate(updateStatus.info))
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -400,6 +400,78 @@ fun AboutAndUpdateCard(
                                 color = AccentCyan,
                                 trackColor = DarkSurface
                             )
+                        }
+                    }
+                }
+
+                is UpdateStatus.ReadyToInstall -> {
+                    val sizeMb = String.format(java.util.Locale.US, "%.1f", updateStatus.apkFile.length() / (1024f * 1024f))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        color = AccentGreen.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, AccentGreen.copy(alpha = 0.5f))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "UPDATE READY: v${updateStatus.info.latestVersion}",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = AccentGreen,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = "$sizeMb MB",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AccentGreen,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Package downloaded successfully. Tap below to launch installer.",
+                                fontSize = 11.sp,
+                                color = TextSecondary
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Button(
+                                onClick = {
+                                    onEvent(IntercomUiEvent.InstallDownloadedApk(updateStatus.apkFile))
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = AccentGreen,
+                                    contentColor = DarkBackground
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SystemUpdate,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "INSTALL UPDATE NOW",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
                         }
                     }
                 }
