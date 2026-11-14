@@ -10,9 +10,15 @@ import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
 import com.landxcape.synkromesh.domain.model.HotspotClientState
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,7 +29,16 @@ class WifiHotspotClientDriver @Inject constructor(
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
+    private val driverScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var reconnectJob: Job? = null
+
+    @Volatile
+    private var isSessionBound = false
+    @Volatile
+    private var targetSsid: String? = null
+    @Volatile
+    private var targetPassword: String? = null
 
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
@@ -41,11 +56,22 @@ class WifiHotspotClientDriver @Inject constructor(
     val subnetBroadcastIp: StateFlow<String?> = _subnetBroadcastIp.asStateFlow()
 
     fun connectToHotspot(ssid: String, password: String): Result<Unit> = runCatching {
-        val manager = connectivityManager ?: error("ConnectivityManager unavailable")
         disconnect()
+
+        isSessionBound = true
+        targetSsid = ssid
+        targetPassword = password
 
         _clientState.value = HotspotClientState.CONNECTING
         _connectedSsid.value = ssid
+
+        attemptConnection(ssid, password)
+    }
+
+    private fun attemptConnection(ssid: String, password: String) {
+        if (!isSessionBound) return
+        val manager = connectivityManager ?: return
+        unregisterCallbackSilently()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val specifier = WifiNetworkSpecifier.Builder()
@@ -66,6 +92,8 @@ class WifiHotspotClientDriver @Inject constructor(
             val callback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     super.onAvailable(network)
+                    reconnectJob?.cancel()
+                    reconnectJob = null
                     _hotspotNetwork.value = network
                     updateSubnetBroadcast(network)
                     _isConnected.value = true
@@ -92,8 +120,13 @@ class WifiHotspotClientDriver @Inject constructor(
                     _hotspotNetwork.value = null
                     _subnetBroadcastIp.value = null
                     _isConnected.value = false
-                    _connectedSsid.value = null
-                    _clientState.value = HotspotClientState.IDLE
+                    if (isSessionBound) {
+                        _clientState.value = HotspotClientState.RECONNECTING
+                        triggerAutoReconnect()
+                    } else {
+                        _connectedSsid.value = null
+                        _clientState.value = HotspotClientState.IDLE
+                    }
                 }
 
                 override fun onUnavailable() {
@@ -101,13 +134,37 @@ class WifiHotspotClientDriver @Inject constructor(
                     _hotspotNetwork.value = null
                     _subnetBroadcastIp.value = null
                     _isConnected.value = false
-                    _connectedSsid.value = null
-                    _clientState.value = HotspotClientState.FAILED
+                    if (isSessionBound) {
+                        _clientState.value = HotspotClientState.RECONNECTING
+                        triggerAutoReconnect()
+                    } else {
+                        _connectedSsid.value = null
+                        _clientState.value = HotspotClientState.FAILED
+                    }
                 }
             }
 
             networkCallback = callback
-            manager.requestNetwork(request, callback)
+            try {
+                manager.requestNetwork(request, callback)
+            } catch (_: Exception) {
+                if (isSessionBound) {
+                    triggerAutoReconnect()
+                }
+            }
+        }
+    }
+
+    private fun triggerAutoReconnect() {
+        if (!isSessionBound) return
+        reconnectJob?.cancel()
+        reconnectJob = driverScope.launch {
+            delay(2500L)
+            if (isSessionBound && !_isConnected.value) {
+                val ssid = targetSsid ?: return@launch
+                val pwd = targetPassword.orEmpty()
+                attemptConnection(ssid, pwd)
+            }
         }
     }
 
@@ -132,14 +189,22 @@ class WifiHotspotClientDriver @Inject constructor(
         return "${b[0].toInt() and 0xFF}.${b[1].toInt() and 0xFF}.${b[2].toInt() and 0xFF}.${b[3].toInt() and 0xFF}"
     }
 
-    fun disconnect(): Result<Unit> = runCatching {
-        val manager = connectivityManager ?: return@runCatching
+    private fun unregisterCallbackSilently() {
         networkCallback?.let { callback ->
             try {
-                manager.unregisterNetworkCallback(callback)
+                connectivityManager?.unregisterNetworkCallback(callback)
             } catch (_: Exception) {}
         }
         networkCallback = null
+    }
+
+    fun disconnect(): Result<Unit> = runCatching {
+        isSessionBound = false
+        targetSsid = null
+        targetPassword = null
+        reconnectJob?.cancel()
+        reconnectJob = null
+        unregisterCallbackSilently()
         _hotspotNetwork.value = null
         _subnetBroadcastIp.value = null
         _isConnected.value = false

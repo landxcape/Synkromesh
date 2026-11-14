@@ -4,5 +4,6 @@ enum class HotspotClientState {
     IDLE,
     CONNECTING,
     CONNECTED,
+    RECONNECTING,
     FAILED
 }

@@ -1,5 +1,6 @@
 package com.landxcape.synkromesh.service
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.media.session.MediaSession
@@ -20,7 +21,17 @@ class HeadsetMediaButtonManager @Inject constructor(
     fun activateMediaSession() {
         if (mediaSession != null) return
 
+        val mediaButtonIntent = Intent(Intent.ACTION_MEDIA_BUTTON, null, context, HeadsetMediaButtonReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            0,
+            mediaButtonIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         val session = MediaSession(context, "SynkromeshMediaSession").apply {
+            @Suppress("DEPRECATION")
+            setMediaButtonReceiver(pendingIntent)
             setCallback(object : MediaSession.Callback() {
                 override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
                     val keyEvent = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {

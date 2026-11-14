@@ -257,10 +257,11 @@ class IntercomForegroundService : Service() {
     }
 
     private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Synkromesh::IntercomWakeLock").apply {
             setReferenceCounted(false)
-            acquire(10 * 60 * 1000L) // 10 minutes sliding window
+            acquire()
         }
     }
 
@@ -281,16 +282,11 @@ class IntercomForegroundService : Service() {
         _isLowLatencyModeFlow.value = lowLatency
         wifiLock?.let { if (it.isHeld) it.release() }
         val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-        val lockType = if (lowLatency) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
-            } else {
-                @Suppress("DEPRECATION")
-                WifiManager.WIFI_MODE_FULL_HIGH_PERF
-            }
+        val lockType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            WifiManager.WIFI_MODE_FULL_LOW_LATENCY
         } else {
             @Suppress("DEPRECATION")
-            WifiManager.WIFI_MODE_FULL
+            WifiManager.WIFI_MODE_FULL_HIGH_PERF
         }
         wifiLock = wifiManager?.createWifiLock(lockType, "Synkromesh::IntercomWifiLock")?.apply {
             setReferenceCounted(false)
@@ -315,16 +311,8 @@ class IntercomForegroundService : Service() {
             }
         }
 
-        powerMonitorJob?.cancel()
-        powerMonitorJob = serviceScope.launch {
-            while (isActive) {
-                delay(15_000L)
-                val now = System.currentTimeMillis()
-                if (isLowLatencyMode && (now - lastAudioActivityTimestampMs > 45_000L)) {
-                    setWifiLockMode(lowLatency = false)
-                }
-            }
-        }
+        // Active session maintains low-latency Wi-Fi lock and unthrottled UDP reception
+        setWifiLockMode(lowLatency = true)
     }
 
     private fun acquireMulticastLock() {

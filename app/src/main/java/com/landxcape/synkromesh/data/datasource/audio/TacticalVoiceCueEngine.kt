@@ -85,6 +85,14 @@ class TacticalVoiceCueEngine @Inject constructor(
         speak("power_mode", if (isEco) "Mesh idle. Eco power" else "Performance mesh active")
     }
 
+    fun announceMeshDisconnected() {
+        speak("mesh_disconnected", "Mesh connection lost. Reconnecting")
+    }
+
+    fun announceMeshReconnected() {
+        speak("mesh_reconnected", "Mesh connection restored")
+    }
+
     fun shutdown() {
         tts?.stop()
         tts?.shutdown()

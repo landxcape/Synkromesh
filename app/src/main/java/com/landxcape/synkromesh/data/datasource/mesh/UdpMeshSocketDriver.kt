@@ -142,6 +142,14 @@ class UdpMeshSocketDriver @Inject constructor(
         }
     }
 
+    fun updateNetworkBinding(network: Network?) {
+        datagramSocket?.let { socket ->
+            try {
+                network?.bindSocket(socket)
+            } catch (_: Exception) {}
+        }
+    }
+
     fun startSocket(network: Network? = null): Result<Unit> = runCatching {
         if (_isSocketActive.value) return@runCatching
 

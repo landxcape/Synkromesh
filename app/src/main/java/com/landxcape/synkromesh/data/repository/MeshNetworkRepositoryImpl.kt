@@ -1,5 +1,6 @@
 package com.landxcape.synkromesh.data.repository
 
+import com.landxcape.synkromesh.data.datasource.audio.TacticalVoiceCueEngine
 import com.landxcape.synkromesh.data.datasource.local.PreferencesDataSource
 import com.landxcape.synkromesh.data.datasource.mesh.LocalHotspotDriver
 import com.landxcape.synkromesh.data.datasource.mesh.LocationTelemetryDataSource
@@ -7,6 +8,7 @@ import com.landxcape.synkromesh.data.datasource.mesh.NearbyMeshDiscoveryDriver
 import com.landxcape.synkromesh.data.datasource.mesh.UdpMeshSocketDriver
 import com.landxcape.synkromesh.data.datasource.mesh.WifiHotspotClientDriver
 import com.landxcape.synkromesh.domain.model.AudioPacket
+import com.landxcape.synkromesh.domain.model.HotspotClientState
 import com.landxcape.synkromesh.domain.model.MeshPeer
 import com.landxcape.synkromesh.domain.model.MeshState
 import com.landxcape.synkromesh.domain.model.TransportMode
@@ -31,13 +33,15 @@ class MeshNetworkRepositoryImpl @Inject constructor(
     private val wifiHotspotClientDriver: WifiHotspotClientDriver,
     private val locationDataSource: LocationTelemetryDataSource,
     private val audioEngineRepository: AudioEngineRepository,
-    private val preferencesDataSource: PreferencesDataSource
+    private val preferencesDataSource: PreferencesDataSource,
+    private val tacticalVoiceCueEngine: TacticalVoiceCueEngine
 ) : MeshNetworkRepository {
 
     private val meshScope = CoroutineScope(Dispatchers.IO)
     private var audioBridgeJob: Job? = null
     private var telemetryBroadcastJob: Job? = null
     private var heartbeatJob: Job? = null
+    private var reconnectMonitorJob: Job? = null
     private var activePackToken: String? = null
     private var activeTransportMode: TransportMode = TransportMode.DUAL
 
@@ -175,9 +179,45 @@ class MeshNetworkRepositoryImpl @Inject constructor(
                 }
             }
         }
+
+        // 6. Dynamic Reconnection & Socket Rebinding Monitor (HOTSPOT_UDP mode)
+        reconnectMonitorJob?.cancel()
+        if (transportMode == TransportMode.HOTSPOT_UDP) {
+            reconnectMonitorJob = meshScope.launch {
+                launch {
+                    wifiHotspotClientDriver.subnetBroadcastIp.collect { bcast ->
+                        if (bcast != null) {
+                            udpDriver.setBroadcastTarget(bcast)
+                        }
+                    }
+                }
+                launch {
+                    wifiHotspotClientDriver.hotspotNetwork.collect { net ->
+                        if (net != null) {
+                            udpDriver.updateNetworkBinding(net)
+                        }
+                    }
+                }
+                launch {
+                    var previousState: HotspotClientState? = null
+                    wifiHotspotClientDriver.clientState.collect { state ->
+                        if (previousState != null && previousState != state) {
+                            if (state == HotspotClientState.RECONNECTING) {
+                                tacticalVoiceCueEngine.announceMeshDisconnected()
+                            } else if (state == HotspotClientState.CONNECTED) {
+                                tacticalVoiceCueEngine.announceMeshReconnected()
+                            }
+                        }
+                        previousState = state
+                    }
+                }
+            }
+        }
     }
 
     override suspend fun stopMeshSession(): Result<Unit> = runCatching {
+        reconnectMonitorJob?.cancel()
+        reconnectMonitorJob = null
         audioBridgeJob?.cancel()
         audioBridgeJob = null
         heartbeatJob?.cancel()

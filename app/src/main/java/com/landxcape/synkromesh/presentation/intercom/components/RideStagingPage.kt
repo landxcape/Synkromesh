@@ -1403,8 +1403,9 @@ private fun JoinPackContent(
             }
 
             when (clientState) {
-                HotspotClientState.CONNECTING -> {
-                    // Connecting / Associating Card
+                HotspotClientState.CONNECTING, HotspotClientState.RECONNECTING -> {
+                    // Connecting / Associating / Reconnecting Card
+                    val isReconnecting = clientState == HotspotClientState.RECONNECTING
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1427,7 +1428,7 @@ private fun JoinPackContent(
                             )
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "ASSOCIATING WITH LEAD PACK...",
+                                    text = if (isReconnecting) "RECONNECTING TO LEAD PACK..." else "ASSOCIATING WITH LEAD PACK...",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Black,
                                     letterSpacing = 0.5.sp,
@@ -1435,7 +1436,11 @@ private fun JoinPackContent(
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "Connecting to ${connectedSsid ?: "Lead Hotspot"}...\nNegotiating Wi-Fi handshake and directed subnet routing.",
+                                    text = if (isReconnecting) {
+                                        "Searching for ${connectedSsid ?: "Lead Hotspot"}...\nWill automatically link without re-scanning as soon as leader is in range."
+                                    } else {
+                                        "Connecting to ${connectedSsid ?: "Lead Hotspot"}...\nNegotiating Wi-Fi handshake and directed subnet routing."
+                                    },
                                     fontSize = 12.sp,
                                     color = TextSecondary,
                                     textAlign = TextAlign.Center
@@ -1703,6 +1708,7 @@ private fun JoinPackContent(
                 Text(
                     text = when (clientState) {
                         HotspotClientState.CONNECTING -> "ASSOCIATING..."
+                        HotspotClientState.RECONNECTING -> "RECONNECTING..."
                         HotspotClientState.CONNECTED -> "WI-FI LINKED"
                         HotspotClientState.FAILED -> "LINK TIMEOUT"
                         HotspotClientState.IDLE -> when (meshState) {
@@ -1715,7 +1721,7 @@ private fun JoinPackContent(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = when (clientState) {
-                        HotspotClientState.CONNECTING -> AccentAmber
+                        HotspotClientState.CONNECTING, HotspotClientState.RECONNECTING -> AccentAmber
                         HotspotClientState.CONNECTED -> AccentGreen
                         HotspotClientState.FAILED -> AccentAmber
                         HotspotClientState.IDLE -> when (meshState) {
