@@ -48,6 +48,7 @@ class MeshNetworkRepositoryImpl @Inject constructor(
     override fun setPackToken(token: String?) {
         activePackToken = token
         udpDriver.activePackToken = token
+        nearbyDriver.activePackToken = token
     }
 
     override fun observeMeshState(): Flow<MeshState> = combine(
@@ -67,8 +68,8 @@ class MeshNetworkRepositoryImpl @Inject constructor(
         udpDriver.udpPeersFlow
     ) { nearbyPeers, udpPeers ->
         val activeNearby = if (activeTransportMode == TransportMode.DUAL) nearbyPeers else emptyList()
-        val combined = (activeNearby + udpPeers)
-        combined.distinctBy { it.callsign.lowercase().trim() }
+        val combined = (udpPeers + activeNearby)
+        combined.distinctBy { it.id }
     }
 
     override fun observeIncomingAudioPackets(): Flow<AudioPacket> = merge(
@@ -107,8 +108,12 @@ class MeshNetworkRepositoryImpl @Inject constructor(
         udpDriver.setBroadcastTarget(subnetBroadcast)
         udpDriver.startSocket(hotspotNet).getOrThrow()
 
+        // Start GPS & battery telemetry in ALL transport modes (DUAL and HOTSPOT_UDP)
+        locationDataSource.startLocationUpdates()
+
         // 2. Start automated zero-config BLE discovery & Wi-Fi Direct handshake for Channel (DUAL mode only)
         if (transportMode == TransportMode.DUAL) {
+            nearbyDriver.activePackToken = activePackToken
             nearbyDriver.startDiscoveryAndAdvertising(callsign, channel, deviceId).getOrThrow()
         }
 
@@ -224,6 +229,7 @@ class MeshNetworkRepositoryImpl @Inject constructor(
         heartbeatJob = null
         telemetryBroadcastJob?.cancel()
         telemetryBroadcastJob = null
+        locationDataSource.stopLocationUpdates()
         nearbyDriver.stop().getOrThrow()
         udpDriver.setBroadcastTarget(null)
         udpDriver.stopSocket().getOrThrow()

@@ -68,7 +68,9 @@ jobs:
         run: |
           mkdir -p release-artifacts
           cp app/build/outputs/apk/release/synkromesh-*.apk release-artifacts/
-          cp app/build/outputs/bundle/release/app-release.aab release-artifacts/synkromesh-v0.1.0-b1-app-release.aab
+          VERSION=$(grep 'versionName' app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          BUILD=$(grep 'versionCode' app/build.gradle.kts | head -1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
+          cp app/build/outputs/bundle/release/app-release.aab "release-artifacts/synkromesh-v${VERSION}-b${BUILD}-app-release.aab"
           cd release-artifacts
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt

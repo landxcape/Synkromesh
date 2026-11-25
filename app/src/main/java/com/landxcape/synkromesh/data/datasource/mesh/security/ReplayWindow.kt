@@ -48,6 +48,9 @@ class ReplayWindow(private val windowSize: Int = 64) {
     }
 
     @Synchronized
+    fun getMaxSeq(): Long = maxSeq
+
+    @Synchronized
     fun reset() {
         maxSeq = -1L
         windowBitmap = 0uL

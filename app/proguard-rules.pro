@@ -28,6 +28,18 @@
 -keep class * extends dagger.hilt.internal.GeneratedComponent { *; }
 -keep class dagger.hilt.** { *; }
 
+# OpenStreetMap (osmdroid)
+-keep class org.osmdroid.** { *; }
+-dontwarn org.osmdroid.**
+
+# Google ML Kit Code Scanner & ZXing
+-keep class com.google.mlkit.** { *; }
+-dontwarn com.google.mlkit.**
+-keep class com.google.zxing.** { *; }
+
+# AndroidX DataStore
+-keep class androidx.datastore.** { *; }
+
 # Release Logging Stripping (strip verbose, debug, info, and warning logs in release builds)
 -assumenosideeffects class android.util.Log {
     public static boolean isLoggable(java.lang.String, int);

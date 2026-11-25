@@ -16,9 +16,9 @@ class AudioToneFeedbackGenerator @Inject constructor(
 ) {
 
     companion object {
-        private const val SAMPLE_RATE = OpusCodecEngine.SAMPLE_RATE // 16000 Hz
+        private const val SAMPLE_RATE = OpusCodecEngine.SAMPLE_RATE // 48000 Hz
         private const val DURATION_MS = 50
-        private const val SAMPLE_COUNT = (SAMPLE_RATE * DURATION_MS) / 1000 // 800 samples
+        private const val SAMPLE_COUNT = (SAMPLE_RATE * DURATION_MS) / 1000 // 2400 samples
     }
 
     private val micOpenTone: ShortArray = generateChirp(startFreq = 440f, endFreq = 880f)

@@ -26,6 +26,12 @@ import javax.inject.Singleton
 class WifiHotspotClientDriver @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+    companion object {
+        private const val INITIAL_BACKOFF_MS = 2500L
+        private const val MAX_BACKOFF_MS = 30_000L
+        private const val MAX_RECONNECT_ATTEMPTS = 12
+    }
+
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
@@ -39,6 +45,8 @@ class WifiHotspotClientDriver @Inject constructor(
     private var targetSsid: String? = null
     @Volatile
     private var targetPassword: String? = null
+    @Volatile
+    private var reconnectAttempts = 0
 
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
@@ -61,6 +69,7 @@ class WifiHotspotClientDriver @Inject constructor(
         isSessionBound = true
         targetSsid = ssid
         targetPassword = password
+        reconnectAttempts = 0
 
         _clientState.value = HotspotClientState.CONNECTING
         _connectedSsid.value = ssid
@@ -94,6 +103,7 @@ class WifiHotspotClientDriver @Inject constructor(
                     super.onAvailable(network)
                     reconnectJob?.cancel()
                     reconnectJob = null
+                    reconnectAttempts = 0
                     _hotspotNetwork.value = network
                     updateSubnetBroadcast(network)
                     _isConnected.value = true
@@ -157,9 +167,18 @@ class WifiHotspotClientDriver @Inject constructor(
 
     private fun triggerAutoReconnect() {
         if (!isSessionBound) return
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            isSessionBound = false
+            _clientState.value = HotspotClientState.FAILED
+            return
+        }
+        val attempt = reconnectAttempts
+        reconnectAttempts++
+        val backoffMs = (INITIAL_BACKOFF_MS shl attempt.coerceAtMost(4)).coerceAtMost(MAX_BACKOFF_MS)
+
         reconnectJob?.cancel()
         reconnectJob = driverScope.launch {
-            delay(2500L)
+            delay(backoffMs)
             if (isSessionBound && !_isConnected.value) {
                 val ssid = targetSsid ?: return@launch
                 val pwd = targetPassword.orEmpty()

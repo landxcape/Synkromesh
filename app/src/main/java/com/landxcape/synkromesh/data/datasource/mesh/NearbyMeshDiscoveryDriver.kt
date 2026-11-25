@@ -16,6 +16,8 @@ import com.google.android.gms.nearby.connection.Payload
 import com.google.android.gms.nearby.connection.PayloadCallback
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
+import com.landxcape.synkromesh.data.datasource.mesh.security.PayloadCipher
+import com.landxcape.synkromesh.data.datasource.mesh.security.ReplayWindow
 import com.landxcape.synkromesh.domain.model.AudioPacket
 import com.landxcape.synkromesh.domain.model.MeshPeer
 import com.landxcape.synkromesh.domain.model.MeshState
@@ -64,6 +66,19 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
     private var localCallsign: String = "Rider"
     private var localDeviceId: String = ""
     private var activeChannel: Int = 1
+
+    @Volatile
+    private var derivedEncryptionKey: ByteArray? = null
+    private val replayWindows = ConcurrentHashMap<String, ReplayWindow>()
+    private val lastTimestamps = ConcurrentHashMap<String, Long>()
+
+    var activePackToken: String? = null
+        set(value) {
+            field = value
+            derivedEncryptionKey = if (!value.isNullOrBlank()) {
+                PayloadCipher.deriveKey(value)
+            } else null
+        }
 
     private val connectionLifecycleCallback = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
@@ -182,8 +197,23 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
         if (senderChannel != activeChannel) return
 
         val payloadSize = buffer.remaining()
-        val opusBytes = ByteArray(payloadSize)
-        buffer.get(opusBytes)
+        val rawBytes = ByteArray(payloadSize)
+        buffer.get(rawBytes)
+
+        val key = derivedEncryptionKey
+        val opusBytes = if (key != null && rawBytes.isNotEmpty()) {
+            PayloadCipher.decrypt(key, senderDeviceId, seq, tagBytes, rawBytes, salt = timestamp) ?: return
+        } else {
+            rawBytes
+        }
+
+        val replayWindow = replayWindows.computeIfAbsent(senderDeviceId) { ReplayWindow() }
+        val prevTs = lastTimestamps[senderDeviceId] ?: 0L
+        if (seq in 1L..5L && replayWindow.getMaxSeq() > 64L && timestamp > prevTs + 1500L) {
+            replayWindow.reset()
+        }
+        if (!replayWindow.isPacketAcceptable(seq)) return
+        lastTimestamps[senderDeviceId] = timestamp
 
         _incomingAudioFlow.tryEmit(
             AudioPacket(
@@ -244,14 +274,21 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
         val senderTag = "${packet.senderId}|$activeChannel"
         val senderBytes = senderTag.toByteArray(StandardCharsets.UTF_8)
 
-        val buffer = ByteBuffer.allocate(1 + 8 + 8 + 1 + senderBytes.size + packet.payload.size).apply {
+        val key = derivedEncryptionKey
+        val finalPayload = if (key != null && packet.payload.isNotEmpty()) {
+            PayloadCipher.encrypt(key, packet.senderId, packet.sequenceNumber, senderBytes, packet.payload, salt = packet.timestampMs)
+        } else {
+            packet.payload
+        }
+
+        val buffer = ByteBuffer.allocate(1 + 8 + 8 + 1 + senderBytes.size + finalPayload.size).apply {
             order(ByteOrder.BIG_ENDIAN)
             put(PAYLOAD_TYPE_AUDIO)
             putLong(packet.sequenceNumber)
             putLong(packet.timestampMs)
             put(senderBytes.size.toByte())
             put(senderBytes)
-            put(packet.payload)
+            put(finalPayload)
         }
 
         val payload = Payload.fromBytes(buffer.array())
@@ -316,6 +353,8 @@ class NearbyMeshDiscoveryDriver @Inject constructor(
         client.stopAllEndpoints()
         _peersMap.clear()
         _peersFlow.value = emptyList()
+        replayWindows.clear()
+        lastTimestamps.clear()
         _meshState.value = MeshState.DISCONNECTED
     }
 

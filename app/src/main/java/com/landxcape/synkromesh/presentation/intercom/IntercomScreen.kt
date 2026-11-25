@@ -494,41 +494,27 @@ private fun ChannelPickerSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Channels 1 to 4
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                (1..4).forEach { ch ->
-                    ChannelPickerButton(
-                        channel = ch,
-                        isSelected = ch == currentChannel,
-                        onClick = {
-                            onSelectChannel(ch)
-                            onDismiss()
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
+            // Channels 1 to 16 (4x4 grid)
+            for (rowIndex in 0 until 4) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    for (colIndex in 0 until 4) {
+                        val ch = rowIndex * 4 + colIndex + 1
+                        ChannelPickerButton(
+                            channel = ch,
+                            isSelected = ch == currentChannel,
+                            onClick = {
+                                onSelectChannel(ch)
+                                onDismiss()
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Channels 5 to 8
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                (5..8).forEach { ch ->
-                    ChannelPickerButton(
-                        channel = ch,
-                        isSelected = ch == currentChannel,
-                        onClick = {
-                            onSelectChannel(ch)
-                            onDismiss()
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
+                if (rowIndex < 3) {
+                    Spacer(modifier = Modifier.height(10.dp))
                 }
             }
 

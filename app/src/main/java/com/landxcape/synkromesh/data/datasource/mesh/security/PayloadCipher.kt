@@ -27,11 +27,11 @@ object PayloadCipher {
     }
 
     /**
-     * Constructs a deterministic 12-byte (96-bit) GCM Nonce from device ID and sequence number.
-     * Guarantees global uniqueness per packet with zero wire overhead.
+     * Constructs a deterministic 12-byte (96-bit) GCM Nonce from device ID, optional session salt,
+     * and sequence number. Including [salt] (e.g. packet timestamp) prevents nonce reuse across restarts.
      */
-    fun buildNonce(deviceId: String, seq: Long): ByteArray {
-        val deviceHash = deviceId.hashCode()
+    fun buildNonce(deviceId: String, seq: Long, salt: Long = 0L): ByteArray {
+        val deviceHash = deviceId.hashCode() xor (salt ushr 16).toInt() xor salt.toInt()
         return ByteBuffer.allocate(12)
             .order(ByteOrder.BIG_ENDIAN)
             .putInt(deviceHash)
@@ -41,17 +41,18 @@ object PayloadCipher {
 
     /**
      * Encrypts [plaintext] using AES-128-GCM, cryptographically binding [aad] (packet header).
-     * Output contains the ciphertext followed by the 16-byte Poly1305/GCM authentication tag.
+     * Output contains the ciphertext followed by the 16-byte GCM authentication tag.
      */
     fun encrypt(
         key: ByteArray,
         deviceId: String,
         seq: Long,
         aad: ByteArray?,
-        plaintext: ByteArray
+        plaintext: ByteArray,
+        salt: Long = 0L
     ): ByteArray {
         if (plaintext.isEmpty()) return plaintext
-        val nonce = buildNonce(deviceId, seq)
+        val nonce = buildNonce(deviceId, seq, salt)
         val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
         val keySpec = SecretKeySpec(key, "AES")
         val gcmSpec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, nonce)
@@ -71,11 +72,12 @@ object PayloadCipher {
         deviceId: String,
         seq: Long,
         aad: ByteArray?,
-        ciphertext: ByteArray
+        ciphertext: ByteArray,
+        salt: Long = 0L
     ): ByteArray? {
         if (ciphertext.isEmpty()) return ciphertext
         return try {
-            val nonce = buildNonce(deviceId, seq)
+            val nonce = buildNonce(deviceId, seq, salt)
             val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
             val keySpec = SecretKeySpec(key, "AES")
             val gcmSpec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, nonce)

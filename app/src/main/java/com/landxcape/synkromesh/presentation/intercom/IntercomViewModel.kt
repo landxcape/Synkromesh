@@ -425,11 +425,13 @@ class IntercomViewModel @Inject constructor(
 
     private fun onTogglePeerMute(peerId: String) {
         val current = _mutedPeerIds.value
-        _mutedPeerIds.value = if (current.contains(peerId)) {
+        val updated = if (current.contains(peerId)) {
             current - peerId
         } else {
             current + peerId
         }
+        _mutedPeerIds.value = updated
+        audioEngineRepository.setMutedPeerIds(updated)
     }
 
     private suspend fun onModeChanged(mode: IntercomMode) {
@@ -536,13 +538,13 @@ class IntercomViewModel @Inject constructor(
 
             // Transition to Cockpit HUD once network connectivity is established
             _cockpitPhase.value = CockpitPhase.COCKPIT
-            audioToneFeedbackGenerator.playFeedbackTone(FeedbackTone.MIC_OPEN)
 
             val callsign = preferencesDataSource.callsignFlow.first()
             val channel = preferencesDataSource.rideChannelFlow.first()
             val startResult = startIntercomSessionUseCase()
             if (startResult.isSuccess) {
                 audioEngineRepository.startAudioEngine()
+                audioToneFeedbackGenerator.playFeedbackTone(FeedbackTone.MIC_OPEN)
                 meshNetworkRepository.startMeshSession(callsign, channel, _groupingMode.value.toTransportMode())
             } else {
                 val err = startResult.exceptionOrNull()

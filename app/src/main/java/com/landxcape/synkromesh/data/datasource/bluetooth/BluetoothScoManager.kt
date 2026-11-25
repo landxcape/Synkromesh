@@ -43,6 +43,8 @@ class BluetoothScoManager @Inject constructor(
 
     private var isScoRequested = false
     private var isReceiverRegistered = false
+    private var deviceExecutor: java.util.concurrent.ExecutorService? = null
+    private var modernDeviceListener: AudioManager.OnCommunicationDeviceChangedListener? = null
 
     private val scoReceiver = object : BroadcastReceiver() {
         @SuppressLint("MissingPermission")
@@ -196,9 +198,9 @@ class BluetoothScoManager @Inject constructor(
 
     @RequiresApi(Build.VERSION_CODES.S)
     private fun setupModernDeviceListener() {
-        audioManager.addOnCommunicationDeviceChangedListener(
-            Executors.newSingleThreadExecutor()
-        ) { device ->
+        val executor = Executors.newSingleThreadExecutor()
+        deviceExecutor = executor
+        val listener = AudioManager.OnCommunicationDeviceChangedListener { device ->
             scope.launch {
                 if (device != null && (
                     device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
@@ -219,6 +221,8 @@ class BluetoothScoManager @Inject constructor(
                 }
             }
         }
+        modernDeviceListener = listener
+        audioManager.addOnCommunicationDeviceChangedListener(executor, listener)
     }
 
     private fun registerReceivers() {
@@ -236,6 +240,16 @@ class BluetoothScoManager @Inject constructor(
 
     fun release() {
         stopSco()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            modernDeviceListener?.let {
+                try {
+                    audioManager.removeOnCommunicationDeviceChangedListener(it)
+                } catch (_: Exception) {}
+            }
+            modernDeviceListener = null
+        }
+        deviceExecutor?.shutdownNow()
+        deviceExecutor = null
         if (isReceiverRegistered) {
             try {
                 context.unregisterReceiver(scoReceiver)

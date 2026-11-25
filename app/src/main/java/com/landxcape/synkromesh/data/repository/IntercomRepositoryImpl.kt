@@ -25,13 +25,7 @@ class IntercomRepositoryImpl @Inject constructor(
     private val _intercomMode = MutableStateFlow(IntercomMode.PUSH_TO_TALK)
     private val _isMuted = MutableStateFlow(false)
     private val _isSessionActive = MutableStateFlow(false)
-    private val _connectedRiders = MutableStateFlow<List<Rider>>(
-        listOf(
-            Rider(id = "local", callsign = "Rider 1", isLocalUser = true),
-            Rider(id = "peer_1", callsign = "Apex Lead", isTransmitting = false, signalStrengthDbm = -55),
-            Rider(id = "peer_2", callsign = "Sweeper", isTransmitting = false, signalStrengthDbm = -68)
-        )
-    )
+    private val _connectedRiders = MutableStateFlow<List<Rider>>(emptyList())
 
     init {
         scope.launch {

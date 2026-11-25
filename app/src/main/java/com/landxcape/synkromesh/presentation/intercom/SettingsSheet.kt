@@ -162,7 +162,7 @@ fun SettingsSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                for (ch in 1..8) {
+                for (ch in 1..16) {
                     val isSelected = ch == rideChannel
                     Surface(
                         modifier = Modifier.clickable { onSelectChannel(ch) },

@@ -251,6 +251,8 @@ fun LiveCockpitPage(
             CockpitRadarOverlay(
                 riders = uiState.riders,
                 meshState = uiState.meshState,
+                mutedPeerIds = uiState.mutedPeerIds,
+                onTogglePeerMute = { peerId -> onEvent(IntercomUiEvent.TogglePeerMute(peerId)) },
                 onClose = { onEvent(IntercomUiEvent.ToggleRadarOverlay) },
                 onExpandFullscreen = { onEvent(IntercomUiEvent.SetMapFullscreen(true)) }
             )
@@ -403,7 +405,7 @@ private fun CockpitStatusStrip(
 
                 Surface(
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(48.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { onOpenSettings() },
                     color = DarkSurfaceElevated,
@@ -415,7 +417,7 @@ private fun CockpitStatusStrip(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "Tactical Settings",
                             tint = TextSecondary,
-                            modifier = Modifier.size(17.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -662,7 +664,7 @@ private fun TacticalQuickSettingsSheet(
 
             Surface(
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .clickable { onClose() },
                 color = DarkBackground,
@@ -674,7 +676,7 @@ private fun TacticalQuickSettingsSheet(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
                         tint = TextSecondary,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -837,7 +839,7 @@ private fun TacticalQuickSettingsSheet(
                 Slider(
                     value = uiState.vadThreshold,
                     onValueChange = { onEvent(IntercomUiEvent.SaveVadThreshold(it)) },
-                    valueRange = 0.01f..0.20f,
+                    valueRange = 0.01f..0.30f,
                     colors = SliderDefaults.colors(
                         thumbColor = AccentCyan,
                         activeTrackColor = AccentCyan,
@@ -1075,7 +1077,7 @@ private fun CockpitModeSelector(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(34.dp),
+            .height(48.dp),
         color = DarkSurface,
         shape = RoundedCornerShape(8.dp),
         border = BorderStroke(1.dp, BorderSubtle)
@@ -1324,6 +1326,8 @@ private fun TacticalKey(
 private fun CockpitRadarOverlay(
     riders: List<Rider>,
     meshState: MeshState,
+    mutedPeerIds: Set<String> = emptySet(),
+    onTogglePeerMute: (String) -> Unit = {},
     onClose: () -> Unit,
     onExpandFullscreen: () -> Unit = {}
 ) {
@@ -1409,7 +1413,7 @@ private fun CockpitRadarOverlay(
                     if (overlayMode == "MAP") {
                         Surface(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(48.dp)
                                 .clip(CircleShape)
                                 .clickable { onExpandFullscreen() },
                             color = DarkSurface,
@@ -1420,7 +1424,7 @@ private fun CockpitRadarOverlay(
                                     imageVector = Icons.Default.Fullscreen,
                                     contentDescription = "Full-Screen Map",
                                     tint = AccentCyan,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
@@ -1428,7 +1432,7 @@ private fun CockpitRadarOverlay(
 
                     Surface(
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
                             .clickable { onClose() },
                         color = DarkSurface,
@@ -1439,7 +1443,7 @@ private fun CockpitRadarOverlay(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close",
                                 tint = TextPrimary,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
@@ -1541,15 +1545,41 @@ private fun CockpitRadarOverlay(
                                 )
                             }
 
-                            if (rider.relativeBearingDegrees != null) {
-                                Icon(
-                                    imageVector = Icons.Default.Navigation,
-                                    contentDescription = "Bearing",
-                                    tint = AccentCyan,
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .rotate(rider.relativeBearingDegrees)
-                                )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                if (rider.relativeBearingDegrees != null) {
+                                    Icon(
+                                        imageVector = Icons.Default.Navigation,
+                                        contentDescription = "Bearing",
+                                        tint = AccentCyan,
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .rotate(rider.relativeBearingDegrees)
+                                    )
+                                }
+                                if (!rider.isLocalUser) {
+                                    val isPeerMuted = mutedPeerIds.contains(rider.id)
+                                    Surface(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(CircleShape)
+                                            .clickable { onTogglePeerMute(rider.id) },
+                                        color = if (isPeerMuted) AccentRed.copy(alpha = 0.2f) else DarkSurfaceElevated,
+                                        shape = CircleShape,
+                                        border = BorderStroke(1.dp, if (isPeerMuted) AccentRed else BorderSubtle)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = if (isPeerMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                                                contentDescription = if (isPeerMuted) "Unmute ${rider.callsign}" else "Mute ${rider.callsign}",
+                                                tint = if (isPeerMuted) AccentRed else AccentGreen,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

@@ -68,6 +68,17 @@ Java_com_landxcape_synkromesh_data_datasource_audio_nativebridge_NativeOpus_nati
     return encoded_bytes;
 }
 
+JNIEXPORT jint JNICALL
+Java_com_landxcape_synkromesh_data_datasource_audio_nativebridge_NativeOpus_nativeSetBitrate(
+        JNIEnv *env,
+        jobject /* this */,
+        jlong encoder_ptr,
+        jint bitrate) {
+    auto *enc = reinterpret_cast<OpusEncoder *>(encoder_ptr);
+    if (enc == nullptr) return -1;
+    return opus_encoder_ctl(enc, OPUS_SET_BITRATE(bitrate));
+}
+
 JNIEXPORT void JNICALL
 Java_com_landxcape_synkromesh_data_datasource_audio_nativebridge_NativeOpus_nativeDestroyEncoder(
         JNIEnv *env,

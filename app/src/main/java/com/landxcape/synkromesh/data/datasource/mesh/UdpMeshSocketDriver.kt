@@ -282,7 +282,7 @@ class UdpMeshSocketDriver @Inject constructor(
 
             val key = derivedEncryptionKey
             val finalPayload = if (key != null && payload.isNotEmpty()) {
-                PayloadCipher.encrypt(key, localDeviceId, seq, headerAad, payload)
+                PayloadCipher.encrypt(key, localDeviceId, seq, headerAad, payload, salt = now)
             } else {
                 payload
             }
@@ -375,23 +375,7 @@ class UdpMeshSocketDriver @Inject constructor(
             return
         }
 
-        // CRITICAL 4: SLIDING-WINDOW REPLAY FILTER (Drops duplicate, stale, or replayed packets)
-        val replayWindow = replayWindows.computeIfAbsent(senderDeviceId) { ReplayWindow() }
-        if (!replayWindow.isPacketAcceptable(seq)) {
-            return
-        }
-
-        // MULTI-HOP PACKET RELAYING:
-        // If TTL > 1 and this is the first time we see this packet, decrement TTL and re-broadcast to mesh
-        if (hopLimit > 1 && packetRelayFilter.shouldRelay(senderDeviceId, seq)) {
-            val nextHopLimit = hopLimit - 1
-            val nextRawType = ((nextHopLimit shl 4) or (type.toInt() and 0x0F)).toByte()
-            val relayData = data.copyOf(length)
-            relayData[2] = nextRawType
-            relayDatagram(relayData)
-        }
-
-        // CRITICAL 5: END-TO-END PAYLOAD DECRYPTION & AAD AUTHENTICATION
+        // CRITICAL 4: END-TO-END PAYLOAD DECRYPTION & AAD AUTHENTICATION (before relay & replay update)
         val headerEndPos = buffer.position()
         val headerAad = data.copyOfRange(0, headerEndPos)
         // Mask TTL nibble so relayed datagrams decrypt seamlessly
@@ -403,7 +387,7 @@ class UdpMeshSocketDriver @Inject constructor(
 
         val key = derivedEncryptionKey
         val payload = if (key != null && rawPayload.isNotEmpty()) {
-            val decrypted = PayloadCipher.decrypt(key, senderDeviceId, seq, headerAad, rawPayload)
+            val decrypted = PayloadCipher.decrypt(key, senderDeviceId, seq, headerAad, rawPayload, salt = timestamp)
             if (decrypted == null) {
                 // Cryptographic tag verification failed or wrong key: drop packet!
                 return
@@ -412,6 +396,28 @@ class UdpMeshSocketDriver @Inject constructor(
         } else {
             rawPayload
         }
+
+        // CRITICAL 5: SLIDING-WINDOW REPLAY FILTER (Drops duplicate, stale, or replayed packets)
+        val replayWindow = replayWindows.computeIfAbsent(senderDeviceId) { ReplayWindow() }
+        val prevTimestamp = lastReceivedTimestamps[senderDeviceId] ?: 0L
+        if (seq in 1L..5L && replayWindow.getMaxSeq() > 64L && timestamp > prevTimestamp + 1500L) {
+            // Peer restarted session with a fresh monotonic timestamp; reset window safely
+            replayWindow.reset()
+        }
+        if (!replayWindow.isPacketAcceptable(seq)) {
+            return
+        }
+
+        // MULTI-HOP PACKET RELAYING:
+        // If TTL > 1 and this is the first time we see this verified packet, decrement TTL and re-broadcast
+        if (hopLimit > 1 && packetRelayFilter.shouldRelay(senderDeviceId, seq)) {
+            val nextHopLimit = hopLimit - 1
+            val nextRawType = ((nextHopLimit shl 4) or (type.toInt() and 0x0F)).toByte()
+            val relayData = data.copyOf(length)
+            relayData[2] = nextRawType
+            relayDatagram(relayData)
+        }
+
         val payloadSize = payload.size
         lastReceivedTimestamps[senderDeviceId] = timestamp
 

@@ -1,6 +1,7 @@
 package com.landxcape.synkromesh.data.datasource.audio
 
 import com.landxcape.synkromesh.data.datasource.audio.nativebridge.NativeOpus
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -14,10 +15,11 @@ class OpusCodecEngine @Inject constructor() {
         const val FRAME_SIZE_SAMPLES = (SAMPLE_RATE * FRAME_SIZE_MS) / 1000 // 960 samples
         const val BITRATE_BPS = 24000 // 24 kbps wideband/fullband voice
         const val MAX_OPUS_PAYLOAD_BYTES = 500
+        private const val LOCAL_DECODER_ID = "__local_loopback__"
     }
 
     private var encoderPtr: Long = 0L
-    private var decoderPtr: Long = 0L
+    private val peerDecoders = ConcurrentHashMap<String, Long>()
     private val encodeLock = Any()
     private val decodeLock = Any()
 
@@ -36,15 +38,18 @@ class OpusCodecEngine @Inject constructor() {
                 )
             }
         }
-        synchronized(decodeLock) {
-            if (decoderPtr == 0L) {
-                decoderPtr = NativeOpus.nativeCreateDecoder(SAMPLE_RATE, CHANNELS)
+    }
+
+    fun setBitrate(bitrateBps: Int) {
+        synchronized(encodeLock) {
+            if (encoderPtr != 0L) {
+                NativeOpus.nativeSetBitrate(encoderPtr, bitrateBps.coerceIn(6000, 64000))
             }
         }
     }
 
     /**
-     * Compresses a 20ms PCM frame (320 samples) into an Opus packet (~40-60 bytes).
+     * Compresses a 20ms PCM frame into an Opus packet.
      * Returns the encoded byte array, or null if encoding failed.
      */
     fun encode(pcmSamples: ShortArray): ByteArray? = synchronized(encodeLock) {
@@ -67,14 +72,17 @@ class OpusCodecEngine @Inject constructor() {
     }
 
     /**
-     * Decompresses an Opus packet back into 320 PCM samples (20ms wideband audio).
+     * Decompresses an Opus packet using an isolated decoder instance per [senderId].
      * If opusPacket is null or empty, activates Packet Loss Concealment (PLC).
      */
-    fun decode(opusPacket: ByteArray?, useFec: Boolean = true): ShortArray? = synchronized(decodeLock) {
-        if (decoderPtr == 0L) return null
+    fun decode(senderId: String, opusPacket: ByteArray?, useFec: Boolean = true): ShortArray? = synchronized(decodeLock) {
+        val ptr = peerDecoders.computeIfAbsent(senderId) {
+            NativeOpus.nativeCreateDecoder(SAMPLE_RATE, CHANNELS)
+        }
+        if (ptr == 0L) return null
         val outPcm = ShortArray(FRAME_SIZE_SAMPLES)
         val decodedSamples = NativeOpus.nativeDecode(
-            decoderPtr = decoderPtr,
+            decoderPtr = ptr,
             opusIn = opusPacket,
             opusOffset = 0,
             opusLen = opusPacket?.size ?: 0,
@@ -86,6 +94,21 @@ class OpusCodecEngine @Inject constructor() {
         return if (decodedSamples > 0) outPcm else null
     }
 
+    fun decode(opusPacket: ByteArray?, useFec: Boolean = true): ShortArray? {
+        return decode(LOCAL_DECODER_ID, opusPacket, useFec)
+    }
+
+    fun clearDecoders() {
+        synchronized(decodeLock) {
+            peerDecoders.values.forEach { ptr ->
+                if (ptr != 0L) {
+                    NativeOpus.nativeDestroyDecoder(ptr)
+                }
+            }
+            peerDecoders.clear()
+        }
+    }
+
     fun release() {
         synchronized(encodeLock) {
             if (encoderPtr != 0L) {
@@ -93,11 +116,6 @@ class OpusCodecEngine @Inject constructor() {
                 encoderPtr = 0L
             }
         }
-        synchronized(decodeLock) {
-            if (decoderPtr != 0L) {
-                NativeOpus.nativeDestroyDecoder(decoderPtr)
-                decoderPtr = 0L
-            }
-        }
+        clearDecoders()
     }
 }

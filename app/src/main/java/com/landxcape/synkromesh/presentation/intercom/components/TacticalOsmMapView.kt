@@ -83,6 +83,21 @@ fun TacticalOsmMapView(
     }
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+    val pinCache = remember { mutableMapOf<Int, BitmapDrawable>() }
+    var lastRenderedRiders by remember { mutableStateOf<List<Rider>?>(null) }
+    var lastAnimatedPos by remember { mutableStateOf<GeoPoint?>(null) }
+
+    fun getCachedRiderPin(
+        isLocal: Boolean,
+        label: String,
+        isRelayed: Boolean = false,
+        isTransmitting: Boolean = false
+    ): BitmapDrawable {
+        val key = (if (isLocal) 1 else 0) or (if (isRelayed) 2 else 0) or (if (isTransmitting) 4 else 0)
+        return pinCache.getOrPut(key) {
+            createRiderPin(context, isLocal, label, isRelayed, isTransmitting)
+        }
+    }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         mapViewRef?.onResume()
@@ -124,22 +139,31 @@ fun TacticalOsmMapView(
             update = { mapView ->
                 mapViewRef = mapView
 
-                // Clear previous transient markers & polylines
-                mapView.overlays.removeAll { it is Marker || it is Polyline }
-
                 val myPos = if (localRider?.latitude != null && localRider.longitude != null) {
                     GeoPoint(localRider.latitude, localRider.longitude)
                 } else currentCenter
 
                 if (autoFollow) {
-                    mapView.controller.animateTo(myPos)
+                    val prev = lastAnimatedPos
+                    if (prev == null || kotlin.math.abs(prev.latitude - myPos.latitude) > 1e-6 || kotlin.math.abs(prev.longitude - myPos.longitude) > 1e-6) {
+                        mapView.controller.animateTo(myPos)
+                        lastAnimatedPos = myPos
+                    }
                 }
+
+                if (lastRenderedRiders == riders) {
+                    return@AndroidView
+                }
+                lastRenderedRiders = riders
+
+                // Clear previous transient markers & polylines
+                mapView.overlays.removeAll { it is Marker || it is Polyline }
 
                 // 1. Local Rider Marker (Pulsing Cyan Reticle)
                 val localMarker = Marker(mapView).apply {
                     position = myPos
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    icon = createRiderPin(context, isLocal = true, label = localRider?.callsign ?: "You")
+                    icon = getCachedRiderPin(isLocal = true, label = localRider?.callsign ?: "You")
                     rotation = localRider?.relativeBearingDegrees ?: 0f
                     title = "${localRider?.callsign ?: "Rider"} (You)"
                 }
@@ -165,8 +189,7 @@ fun TacticalOsmMapView(
                     val peerMarker = Marker(mapView).apply {
                         position = peerPos
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                        icon = createRiderPin(
-                            context = context,
+                        icon = getCachedRiderPin(
                             isLocal = false,
                             label = peer.callsign,
                             isRelayed = peer.hopCount > 1,
@@ -187,12 +210,12 @@ fun TacticalOsmMapView(
             Column(
                 modifier = controlsModifier
                     .align(controlsAlignment),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // Auto Follow Toggle Button
                 Surface(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(56.dp)
                         .clip(CircleShape)
                         .clickable {
                             autoFollow = !autoFollow
@@ -209,7 +232,7 @@ fun TacticalOsmMapView(
                             imageVector = Icons.Default.MyLocation,
                             contentDescription = "Center on me",
                             tint = if (autoFollow) DarkBackground else AccentCyan,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
@@ -217,7 +240,7 @@ fun TacticalOsmMapView(
                 // Zoom In
                 Surface(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(56.dp)
                         .clip(CircleShape)
                         .clickable { mapViewRef?.controller?.zoomIn() },
                     color = DarkSurface,
@@ -229,7 +252,7 @@ fun TacticalOsmMapView(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Zoom in",
                             tint = TextPrimary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
@@ -237,7 +260,7 @@ fun TacticalOsmMapView(
                 // Zoom Out
                 Surface(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(56.dp)
                         .clip(CircleShape)
                         .clickable { mapViewRef?.controller?.zoomOut() },
                     color = DarkSurface,
@@ -249,7 +272,7 @@ fun TacticalOsmMapView(
                             imageVector = Icons.Default.Remove,
                             contentDescription = "Zoom out",
                             tint = TextPrimary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }

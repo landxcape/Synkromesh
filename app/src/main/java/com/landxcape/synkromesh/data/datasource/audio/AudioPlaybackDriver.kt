@@ -8,6 +8,7 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
 import android.os.Build
+import com.landxcape.synkromesh.data.datasource.bluetooth.BluetoothScoManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +20,8 @@ import kotlin.math.max
 @Singleton
 class AudioPlaybackDriver @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val speedAdaptiveGainController: SpeedAdaptiveGainController
+    private val speedAdaptiveGainController: SpeedAdaptiveGainController,
+    private val bluetoothScoManager: BluetoothScoManager
 ) {
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -57,6 +59,10 @@ class AudioPlaybackDriver @Inject constructor(
     }
 
     private fun applySpeakerphoneRouting(enabled: Boolean) {
+        // Never override an active Bluetooth SCO / BLE helmet headset route
+        if (bluetoothScoManager.routingState.value.isScoConnected) {
+            return
+        }
         if (_isPlaying.value) {
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         }

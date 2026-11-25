@@ -17,24 +17,6 @@ val keystoreProperties = Properties().apply {
     }
 }
 
-if (!keystorePropertiesFile.exists() && !ciKeystoreFile.exists()) {
-    try {
-        project.exec {
-            commandLine(
-                "keytool", "-genkey", "-noprompt",
-                "-keystore", ciKeystoreFile.absolutePath,
-                "-alias", "synkromesh",
-                "-keyalg", "RSA",
-                "-keysize", "2048",
-                "-validity", "10000",
-                "-storepass", "synkromesh",
-                "-keypass", "synkromesh",
-                "-dname", "CN=Synkromesh, OU=Mobile, O=Landxcape, L=Unknown, ST=Unknown, C=US"
-            )
-        }
-    } catch (_: Exception) {}
-}
-
 android {
     namespace = "com.landxcape.synkromesh"
     compileSdk = 35
@@ -44,8 +26,8 @@ android {
         applicationId = "com.landxcape.synkromesh"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.1.6"
+        versionCode = 8
+        versionName = "0.1.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -105,7 +87,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -36,6 +36,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -142,19 +144,18 @@ class IntercomForegroundService : Service() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wifiLock?.let { if (it.isHeld) it.release() }
         multicastLock?.let { if (it.isHeld) it.release() }
-        tacticalVoiceCueEngine.shutdown()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     private fun startPeerNotificationMonitoring() {
         peerMonitoringJob?.cancel()
-        val knownPeerIds = mutableSetOf<String>()
+        val knownPeers = mutableMapOf<String, String>()
         peerMonitoringJob = serviceScope.launch {
             meshNetworkRepository.observePeers().collect { peers ->
-                val currentPeerIds = peers.map { it.id }.toSet()
+                val currentPeers = peers.associate { it.id to it.callsign }
                 for (peer in peers) {
-                    if (!knownPeerIds.contains(peer.id)) {
+                    if (!knownPeers.containsKey(peer.id)) {
                         tacticalVoiceCueEngine.announcePeerJoined(peer.callsign, 1)
                         if (peer.hopCount > 1) {
                             tacticalVoiceCueEngine.announceRelayEngaged(peer.callsign, peer.hopCount)
@@ -164,13 +165,13 @@ class IntercomForegroundService : Service() {
                         tacticalVoiceCueEngine.announceBatteryCritical(peer.callsign, peer.batteryPercent!!)
                     }
                 }
-                for (oldId in knownPeerIds) {
-                    if (!currentPeerIds.contains(oldId)) {
-                        tacticalVoiceCueEngine.announcePeerLost("Rider")
+                for ((oldId, oldCallsign) in knownPeers) {
+                    if (!currentPeers.containsKey(oldId)) {
+                        tacticalVoiceCueEngine.announcePeerLost(oldCallsign)
                     }
                 }
-                knownPeerIds.clear()
-                knownPeerIds.addAll(currentPeerIds)
+                knownPeers.clear()
+                knownPeers.putAll(currentPeers)
 
                 val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 val statusText = if (peers.isEmpty()) {
@@ -335,14 +336,16 @@ class IntercomForegroundService : Service() {
         audioActivityMonitorJob = null
         isLowLatencyMode = true
         _isLowLatencyModeFlow.value = true
-        serviceScope.launch {
-            meshNetworkRepository.stopMeshSession()
-            audioEngineRepository.stopAudioEngine()
-            bluetoothScoRepository.stopBluetoothSco()
-            intercomRepository.stopIntercomSession()
-            val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            audioManager?.mode = AudioManager.MODE_NORMAL
+        runBlocking {
+            withTimeoutOrNull(2000L) {
+                meshNetworkRepository.stopMeshSession()
+                audioEngineRepository.stopAudioEngine()
+                bluetoothScoRepository.stopBluetoothSco()
+                intercomRepository.stopIntercomSession()
+            }
         }
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        audioManager?.mode = AudioManager.MODE_NORMAL
         headsetMediaButtonManager.deactivateMediaSession()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()

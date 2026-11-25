@@ -18,4 +18,5 @@ interface AudioEngineRepository {
     suspend fun setSpeakerphone(enabled: Boolean): Result<Unit>
     suspend fun toggleSpeakerphone(): Result<Boolean>
     suspend fun playIncomingPacket(packet: AudioPacket): Result<Unit>
+    fun setMutedPeerIds(peerIds: Set<String>)
 }

@@ -27,6 +27,8 @@ object NativeOpus {
         maxBytes: Int
     ): Int
 
+    external fun nativeSetBitrate(encoderPtr: Long, bitrate: Int): Int
+
     external fun nativeDestroyEncoder(encoderPtr: Long)
 
     external fun nativeCreateDecoder(

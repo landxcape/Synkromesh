@@ -417,7 +417,7 @@ private fun TechnicalHeaderBar(
 
             Surface(
                 modifier = Modifier
-                    .size(34.dp)
+                    .size(48.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .clickable { onOpenSettings() },
                 color = DarkSurface,
@@ -429,7 +429,7 @@ private fun TechnicalHeaderBar(
                         imageVector = Icons.Default.Settings,
                         contentDescription = "Settings",
                         tint = TextSecondary,
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
